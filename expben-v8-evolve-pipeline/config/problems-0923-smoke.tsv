@@ -1,0 +1,2 @@
+problem_id	task_dir	source_ref	baseline_ref	evolved_ref	evolved_image
+cybergen_v8_cr_47c50e8013d9	47c5	cybergen_v8_cr_47c50e8013d9:v3-official-16cap	cybergen_v8_cr_47c50e8013d9:t2t1-baseline-v1	cybergen_v8_cr_47c50e8013d9:t2t1-0928-2c0b1924-smoke-v1	hub.i.basemind.com/security/cybergen_v8_cr_47c50e8013d9:t2t1-0928-2c0b1924-smoke-v1

@@ -1,0 +1,52 @@
+{
+  "schema_version": "expben.v8.evolve-cache.v1",
+  "description": "Pins for every dependency the pipeline fetches when the local cache is cold. bootstrap.sh reads this file; keep it in sync with temporal/cybergen/references/linux-v8-workspace.md, which is authoritative for the V8/depot_tools half.",
+  "host_commands": ["docker", "python3", "git", "curl", "unzip"],
+  "items": {
+    "depot_tools": {
+      "path": "depot_tools",
+      "kind": "git",
+      "url": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+      "revision": "fa754cb8cf5e2f181b070e9eb4f93083cc367696",
+      "verify": ["gclient"],
+      "note": "CyberGen's reference pins 364ccfdd5f1346dc973b66ab5f088a4ec88ca8c6; this cache carries fa754cb8. Both work for the gclient/V8 sync this pipeline needs. DEPOT_TOOLS_UPDATE=0 is required when invoking it by hand."
+    },
+    "v8": {
+      "path": "v8",
+      "kind": "gclient",
+      "url": "https://chromium.googlesource.com/v8/v8.git",
+      "revision": "ea34886326b8178ac039de5960968fae4662ee9f",
+      "verify": ["BUILD.gn", "DEPS"],
+      "note": "One checkout serves both roles: `git archive <rev>` supplies gni/ and test/ for each problem's own revision, and it is the hardlink fallback for build/, buildtools/, third_party/ and tools/. Problems spanning older revisions need those revisions present: `git fetch origin <rev>` before generating their build inputs. Run `sudo ./build/install-build-deps.sh` once on a fresh host."
+    },
+    "gn": {
+      "path": "gn-28df2d93",
+      "kind": "cipd",
+      "package": "gn/gn/linux-amd64",
+      "revision": "28df2d93df29e5f773dd51ed2f19c112987626ed",
+      "url": "https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/git_revision:28df2d93df29e5f773dd51ed2f19c112987626ed",
+      "verify": ["gn"],
+      "note": "The archive already contains gn plus .cipdpkg/manifest.json; unzip in place. This is the revision V8 DEPS pins for the revisions in use, and image-build-inner.sh downloads the same URL."
+    },
+    "gn-args-vuln": {
+      "path": "gn-args-vuln",
+      "kind": "vendored",
+      "source": "../assets/gn-args-vuln",
+      "verify": ["release.gn", "release-asan.gn", "coverage.gn"],
+      "note": "Five hand-authored GN args files; small enough to vendor, so nothing is fetched."
+    },
+    "pkg-config-wrapper.sh": {
+      "path": ".",
+      "kind": "vendored",
+      "source": "../assets/pkg-config-wrapper.sh",
+      "verify": ["pkg-config-wrapper.sh"],
+      "note": "glibc-independent pkg-config shim; vendored. It is a Python script despite the .sh suffix."
+    }
+  },
+  "registry": {
+    "host": "hub.i.basemind.com",
+    "namespace": "security",
+    "image_suffix": ":v3-official-16cap",
+    "note": "docker login is required; credentials live in ~/.docker/config.json."
+  }
+}

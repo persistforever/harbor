@@ -1,0 +1,9 @@
+target_cpu="x64"
+
+# CyberGen symbol policy: hybrid_dwarf_v1
+use_siso=true
+is_debug=false
+is_component_build=false
+symbol_level=1
+v8_symbol_level=1
+use_debug_fission=false
