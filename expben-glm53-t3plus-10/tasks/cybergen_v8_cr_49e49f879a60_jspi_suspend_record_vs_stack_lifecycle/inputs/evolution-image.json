@@ -1,0 +1,20 @@
+{
+  "schema_version": "expben.v8.rjob-kaniko-image.v1",
+  "direction_id": "jspi_suspend_record_vs_stack_lifecycle",
+  "base_image": "hub.i.basemind.com/security/cybergen_v8_cr_49e49f879a60:v3-official-16cap",
+  "destination": "hub.i.basemind.com/security/cybergen_v8_cr_49e49f879a60:t2t1-0928-07eb6101-compiled-v1",
+  "source_paths": [
+    "src/wasm/module-instantiate.cc",
+    "src/wasm/wasm-js.cc",
+    "src/runtime/runtime-wasm.cc"
+  ],
+  "build_jobs": 64,
+  "build_location": "RJob Kaniko Dockerfile builder stage",
+  "source_dependency_dir": "/data/temporal/expben_v8_build/problems/cybergen_v8_cr_49e49f879a60/build-inputs/source-deps",
+  "source_dependency_archive": "/mnt/ws-jfs/agent-zhangchao/zhangchao/datasets/harbor/jobs/0928/expben_v8_t2_t1_patches-v3_20p_5d-glm5p3-v1/kaniko-contexts/cybergen_v8_cr_49e49f879a60/07eb6101-v1/build-inputs/source-deps.tar",
+  "gn_path": "/data/temporal/gn-28df2d93/gn",
+  "gn_args_dir": "/data/temporal/gn-args-vuln",
+  "pkg_config_path": "/mnt/ws-jfs/agent-zhangchao/zhangchao/github/harbor/adapters/expben_v8_vuln_evolution/scripts/pkg-config-wrapper.sh",
+  "phase2_patch_sha256": "eb52ca9f03a4dce88560d81112388ae7128a533ec893cc461490cb0d46985328",
+  "compile_inputs_sha256": "55c6900b8653887ffd4b70fbb5ff456178d2c0f14fe60316795cd8b6019c8cb8"
+}

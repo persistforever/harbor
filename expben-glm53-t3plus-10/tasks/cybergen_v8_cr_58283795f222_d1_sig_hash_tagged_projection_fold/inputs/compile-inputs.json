@@ -1,0 +1,24 @@
+{
+  "build_jobs": 16,
+  "base_image": "hub.i.basemind.com/security/cybergen_v8_cr_58283795f222:v3-official-16cap",
+  "expected_roots": [
+    "/data/temporal/expben_v8_build/problems/cybergen_v8_cr_58283795f222/build-inputs",
+    "/data/temporal/expben-v8-cr-58283795f222-build-inputs",
+    "/data/temporal/cybergen_v8_cr_58283795f222-build-inputs"
+  ],
+  "status": "not_found",
+  "phase2_patch": "phase2.patch.diff",
+  "base_patch": "base-vuln-to-fixed.patch.diff",
+  "evolved_patch": "evolved-vuln-to-fixed.patch.diff",
+  "source_paths_in_patch": [
+    "src/wasm/signature-hashing.h",
+    "src/wasm/wasm-import-wrapper-cache.h",
+    "src/wasm/wasm-import-wrapper-cache.cc",
+    "src/wasm/module-instantiate.cc",
+    "src/wasm/module-compiler.cc",
+    "src/wasm/wasm-objects.cc",
+    "src/runtime/runtime-wasm.cc",
+    "src/codegen/x64/macro-assembler-x64.cc"
+  ],
+  "shared_build_inputs": "../../build-inputs/cybergen_v8_cr_58283795f222/status.json"
+}

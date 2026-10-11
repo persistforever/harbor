@@ -1,0 +1,104 @@
+[
+  {
+    "end_line": 2061,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 2061
+  },
+  {
+    "end_line": 2062,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 2062
+  },
+  {
+    "end_line": 2057,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 2057
+  },
+  {
+    "end_line": 2089,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 2089
+  },
+  {
+    "end_line": 2090,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 2090
+  },
+  {
+    "end_line": 2091,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 2091
+  },
+  {
+    "end_line": 2092,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 2092
+  },
+  {
+    "end_line": 2093,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 2093
+  },
+  {
+    "end_line": 3334,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3334
+  },
+  {
+    "end_line": 3339,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "vuln",
+    "start_line": 3339
+  },
+  {
+    "end_line": 3342,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3342
+  },
+  {
+    "end_line": 3343,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "vuln",
+    "start_line": 3343
+  },
+  {
+    "end_line": 3347,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3347
+  },
+  {
+    "end_line": 3348,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3348
+  },
+  {
+    "end_line": 3350,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3350
+  },
+  {
+    "end_line": 3351,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3351
+  },
+  {
+    "end_line": 3353,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3353
+  }
+]

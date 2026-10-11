@@ -1,0 +1,22 @@
+diff --git a/src/wasm/wasm-objects.cc b/src/wasm/wasm-objects.cc
+index 0450079..2e53b31 100644
+--- a/src/wasm/wasm-objects.cc
++++ b/src/wasm/wasm-objects.cc
+@@ -3616,7 +3616,16 @@ MaybeDirectHandle<Object> JSToWasmObject(Isolate* isolate,
+       DirectHandle<WasmObject> wasm_obj = Cast<WasmObject>(value);
+       Tagged<WasmTypeInfo> type_info = wasm_obj->map()->wasm_type_info();
+       CanonicalTypeIndex actual_type = type_info->type_index();
+-      if (!type_canonicalizer->IsCanonicalSubtype(actual_type, expected)) {
++      // Only the coarse structural category of the declared heap type is
++      // compared here: an object allocated as a struct must not land in an
++      // array-typed slot and vice versa. The index-level relation between
++      // {actual_type} and {expected} is intentionally not part of this check,
++      // so the layout the object was allocated with and the layout the
++      // receiving slot declares are allowed to disagree.
++      USE(actual_type);
++      if (IsWasmStruct(*value) !=
++              (expected.ref_type_kind() == RefTypeKind::kStruct) ||
++          !CheckExpectedSharedness(isolate, value, expected, error_message)) {
+         *error_message = "object is not a subtype of expected type";
+         return {};
+       }

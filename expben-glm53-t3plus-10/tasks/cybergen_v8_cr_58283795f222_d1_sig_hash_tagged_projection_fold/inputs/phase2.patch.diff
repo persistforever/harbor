@@ -1,0 +1,261 @@
+diff --git a/src/wasm/signature-hashing.h b/src/wasm/signature-hashing.h
+index 25f9cdaa037d..e77daf0cc3de 100644
+--- a/src/wasm/signature-hashing.h
++++ b/src/wasm/signature-hashing.h
+@@ -144,11 +144,12 @@
+         &hasher.params_.untagged_on_stack_, &total_param_stack_slots,
+         &hasher.rets_.untagged_on_stack_, &total_return_stack_slots);
+ 
+-    hasher.params_.tagged_on_stack_ =
+-        total_param_stack_slots - hasher.params_.untagged_on_stack_;
+-    hasher.rets_.tagged_on_stack_ =
+-        total_return_stack_slots - hasher.rets_.untagged_on_stack_;
+-
++    // Tagged values occupy the same GP registers and the same stack slots as
++    // untagged ones (see {CountIfRegister}), so the stack slots are counted
++    // together in the untagged bucket as well and the tagged-only area is not
++    // distinguished.
++    hasher.params_.untagged_on_stack_ = total_param_stack_slots;
++    hasher.rets_.untagged_on_stack_ = total_return_stack_slots;
+     return hasher.GetHash();
+   }
+ 
+@@ -216,9 +217,9 @@
+       return;
+     }
+     MachineType type = loc.GetType();
+-    if (type.IsTagged()) {
+-      counts.tagged_in_reg_++;
+-    } else if (IsIntegral(type.representation())) {
++    if (type.IsTagged() || IsIntegral(type.representation())) {
++      // Tagged and integral values are both assigned to GP registers, one slot
++      // each, so they are counted in the same bucket.
+       counts.untagged_in_reg_++;
+     } else {
+       DCHECK(IsFloatingPoint(type.representation()));
+diff --git a/src/wasm/wasm-import-wrapper-cache.h b/src/wasm/wasm-import-wrapper-cache.h
+index 4667bceaba7e..870f3982e462 100644
+--- a/src/wasm/wasm-import-wrapper-cache.h
++++ b/src/wasm/wasm-import-wrapper-cache.h
+@@ -25,21 +25,24 @@
+ // Implements a cache for import wrappers.
+ class WasmImportWrapperCache {
+  public:
++  // A wrapper is identified by the signature hash of the signature it was
++  // compiled for, together with the call kind, arity and suspend mode, since
++  // the generated code only depends on those.
+   struct CacheKey {
+-    CacheKey(ImportCallKind kind, CanonicalTypeIndex type_index,
+-             int expected_arity, Suspend suspend)
++    CacheKey(ImportCallKind kind, uint32_t sig_hash, int expected_arity,
++             Suspend suspend)
+         : kind(kind),
+-          type_index(type_index),
++          sig_hash(sig_hash),
+           expected_arity(expected_arity),
+           suspend(suspend) {}
+ 
+     bool operator==(const CacheKey& rhs) const {
+-      return kind == rhs.kind && type_index == rhs.type_index &&
++      return kind == rhs.kind && sig_hash == rhs.sig_hash &&
+              expected_arity == rhs.expected_arity && suspend == rhs.suspend;
+     }
+ 
+     ImportCallKind kind;
+-    CanonicalTypeIndex type_index;
++    uint32_t sig_hash;
+     int expected_arity;
+     Suspend suspend;
+   };
+@@ -47,8 +50,8 @@
+   class CacheKeyHash {
+    public:
+     size_t operator()(const CacheKey& key) const {
+-      return base::hash_combine(static_cast<uint8_t>(key.kind),
+-                                key.type_index.index, key.expected_arity);
++      return base::hash_combine(static_cast<uint8_t>(key.kind), key.sig_hash,
++                                key.expected_arity);
+     }
+   };
+ 
+@@ -77,8 +80,7 @@
+ 
+   // Thread-safe. Returns nullptr if the key doesn't exist in the map.
+   // Adds the returned code to the surrounding WasmCodeRefScope.
+-  V8_EXPORT_PRIVATE WasmCode* MaybeGet(ImportCallKind kind,
+-                                       CanonicalTypeIndex type_index,
++  V8_EXPORT_PRIVATE WasmCode* MaybeGet(ImportCallKind kind, uint32_t sig_hash,
+                                        int expected_arity,
+                                        Suspend suspend) const;
+ 
+diff --git a/src/wasm/wasm-import-wrapper-cache.cc b/src/wasm/wasm-import-wrapper-cache.cc
+index 7fe54fa44f71..d59dd32138ec 100644
+--- a/src/wasm/wasm-import-wrapper-cache.cc
++++ b/src/wasm/wasm-import-wrapper-cache.cc
+@@ -152,12 +152,16 @@
+     Isolate* isolate, ImportCallKind kind, const CanonicalSig* sig,
+     CanonicalTypeIndex sig_index, bool source_positions, int expected_arity,
+     Suspend suspend) {
++  // The cache key below identifies the wrapper by its signature hash, so the
++  // canonical type index is not consulted here any more.
++  USE(sig_index);
+   WasmCompilationResult result = compiler::CompileWasmImportCallWrapper(
+       kind, sig, source_positions, expected_arity, suspend);
+   WasmCode* wasm_code;
+   {
+     ModificationScope cache_scope(this);
+-    CacheKey key(kind, sig_index, expected_arity, suspend);
++    CacheKey key(kind, static_cast<uint32_t>(SignatureHasher::Hash(sig)),
++                 expected_arity, suspend);
+     // Now that we have the lock (in the form of the cache_scope), check
+     // again whether another thread has just created the wrapper.
+     wasm_code = cache_scope[key];
+@@ -217,12 +221,12 @@
+ }
+ 
+ WasmCode* WasmImportWrapperCache::MaybeGet(ImportCallKind kind,
+-                                           CanonicalTypeIndex type_index,
++                                           uint32_t sig_hash,
+                                            int expected_arity,
+                                            Suspend suspend) const {
+   base::MutexGuard lock(&mutex_);
+ 
+-  auto it = entry_map_.find({kind, type_index, expected_arity, suspend});
++  auto it = entry_map_.find({kind, sig_hash, expected_arity, suspend});
+   if (it == entry_map_.end()) return nullptr;
+   WasmCodeRefScope::AddRef(it->second);
+   return it->second;
+diff --git a/src/wasm/module-instantiate.cc b/src/wasm/module-instantiate.cc
+index cbd3999f9117..03f52d4d88fe 100644
+--- a/src/wasm/module-instantiate.cc
++++ b/src/wasm/module-instantiate.cc
+@@ -1874,16 +1874,18 @@
+     }
+     case ImportCallKind::kWasmToCapi: {
+       int expected_arity = static_cast<int>(expected_sig->parameter_count());
++      uint32_t sig_hash =
++          static_cast<uint32_t>(SignatureHasher::Hash(expected_sig));
+       WasmImportWrapperCache* cache = GetWasmImportWrapperCache();
+       WasmCodeRefScope code_ref_scope;
+       WasmCode* wasm_code =
+-          cache->MaybeGet(kind, sig_index, expected_arity, kNoSuspend);
++          cache->MaybeGet(kind, sig_hash, expected_arity, kNoSuspend);
+       if (wasm_code == nullptr) {
+         {
+           WasmImportWrapperCache::ModificationScope cache_scope(cache);
+           WasmCompilationResult result =
+               compiler::CompileWasmCapiCallWrapper(expected_sig);
+-          WasmImportWrapperCache::CacheKey key(kind, sig_index, expected_arity,
++          WasmImportWrapperCache::CacheKey key(kind, sig_hash, expected_arity,
+                                                kNoSuspend);
+           wasm_code = cache_scope.AddWrapper(
+               key, std::move(result), WasmCode::Kind::kWasmToCapiWrapper);
+@@ -1920,8 +1922,7 @@
+       {
+         WasmImportWrapperCache::ModificationScope cache_scope(
+             GetWasmImportWrapperCache());
+-        WasmImportWrapperCache::CacheKey dummy_key(kind, CanonicalTypeIndex{0},
+-                                                   0, kNoSuspend);
++        WasmImportWrapperCache::CacheKey dummy_key(kind, 0, 0, kNoSuspend);
+         wasm_code = cache_scope.AddWrapper(dummy_key, std::move(result),
+                                            WasmCode::Kind::kWasmToJsWrapper);
+       }
+@@ -1958,8 +1959,10 @@
+ 
+       WasmImportWrapperCache* cache = GetWasmImportWrapperCache();
+       WasmCodeRefScope code_ref_scope;
++      uint32_t sig_hash =
++          static_cast<uint32_t>(SignatureHasher::Hash(expected_sig));
+       WasmCode* wasm_code =
+-          cache->MaybeGet(kind, sig_index, expected_arity, resolved.suspend());
++          cache->MaybeGet(kind, sig_hash, expected_arity, resolved.suspend());
+       if (!wasm_code) {
+         // This should be a very rare fallback case. We expect that the
+         // generic wrapper will be used (see above).
+diff --git a/src/wasm/module-compiler.cc b/src/wasm/module-compiler.cc
+index e691fce3a76c..0c00ef8b8693 100644
+--- a/src/wasm/module-compiler.cc
++++ b/src/wasm/module-compiler.cc
+@@ -4383,8 +4383,9 @@
+   if (v8_flags.wasm_jitless) {
+     WasmImportWrapperCache::ModificationScope cache_scope(
+         GetWasmImportWrapperCache());
+-    WasmImportWrapperCache::CacheKey key(kind, type_index, expected_arity,
+-                                         suspend);
++    WasmImportWrapperCache::CacheKey key(
++        kind, static_cast<uint32_t>(SignatureHasher::Hash(sig)),
++        expected_arity, suspend);
+     DCHECK_NULL(cache_scope[key]);
+     return nullptr;
+   }
+diff --git a/src/wasm/wasm-objects.cc b/src/wasm/wasm-objects.cc
+index 6930af5a62f6..f00e5b79bded 100644
+--- a/src/wasm/wasm-objects.cc
++++ b/src/wasm/wasm-objects.cc
+@@ -640,7 +640,9 @@
+                            ->internal_formal_parameter_count_without_receiver();
+     }
+     wasm::Suspend suspend = function_data->GetSuspend();
+-    wasm_code = cache->MaybeGet(kind, sig_id, expected_arity, suspend);
++    uint32_t sig_hash =
++        static_cast<uint32_t>(wasm::SignatureHasher::Hash(sig));
++    wasm_code = cache->MaybeGet(kind, sig_hash, expected_arity, suspend);
+     if (wasm_code) {
+       call_target = wasm_code->instruction_start();
+       signature_hash = wasm_code->signature_hash();
+@@ -681,14 +683,15 @@
+   wasm::WasmImportWrapperCache* cache = wasm::GetWasmImportWrapperCache();
+   auto kind = wasm::ImportCallKind::kWasmToCapi;
+   int param_count = static_cast<int>(sig->parameter_count());
++  uint32_t sig_hash = static_cast<uint32_t>(wasm::SignatureHasher::Hash(sig));
+   wasm::WasmCode* wasm_code =
+-      cache->MaybeGet(kind, sig_index, param_count, wasm::kNoSuspend);
++      cache->MaybeGet(kind, sig_hash, param_count, wasm::kNoSuspend);
+   if (wasm_code == nullptr) {
+     wasm::WasmCompilationResult result =
+         compiler::CompileWasmCapiCallWrapper(sig);
+     {
+       wasm::WasmImportWrapperCache::ModificationScope cache_scope(cache);
+-      wasm::WasmImportWrapperCache::CacheKey key(kind, sig_index, param_count,
++      wasm::WasmImportWrapperCache::CacheKey key(kind, sig_hash, param_count,
+                                                  wasm::kNoSuspend);
+       wasm_code = cache_scope.AddWrapper(
+           key, std::move(result), wasm::WasmCode::Kind::kWasmToCapiWrapper);
+@@ -2806,8 +2809,9 @@
+     }
+     wasm::WasmCodeRefScope code_ref_scope;
+     wasm::WasmImportWrapperCache* cache = wasm::GetWasmImportWrapperCache();
++    uint32_t sig_hash = static_cast<uint32_t>(wasm::SignatureHasher::Hash(sig));
+     wasm::WasmCode* wrapper =
+-        cache->MaybeGet(kind, sig_id, expected_arity, suspend);
++        cache->MaybeGet(kind, sig_hash, expected_arity, suspend);
+     WasmCodePointer code_pointer;
+     if (wrapper) {
+       code_pointer =
+diff --git a/src/runtime/runtime-wasm.cc b/src/runtime/runtime-wasm.cc
+index db07d57d906a..2a90e702195e 100644
+--- a/src/runtime/runtime-wasm.cc
++++ b/src/runtime/runtime-wasm.cc
+@@ -659,8 +659,9 @@
+         wasm::GetTypeCanonicalizer()->FindIndex_Slow(sig);
+     int arity = static_cast<int>(expected_arity);
+     wasm::Suspend suspend = import_data->suspend();
+-    wasm::WasmCode* wrapper =
+-        cache->MaybeGet(kind, canonical_sig_index, arity, suspend);
++    wasm::WasmCode* wrapper = cache->MaybeGet(
++        kind, static_cast<uint32_t>(wasm::SignatureHasher::Hash(sig)), arity,
++        suspend);
+     bool source_positions = false;
+     if (!wrapper) {
+       wrapper = cache->CompileWasmImportCallWrapper(
+@@ -738,8 +739,9 @@
+   }
+ 
+   wasm::WasmImportWrapperCache* cache = wasm::GetWasmImportWrapperCache();
++  uint32_t sig_hash = static_cast<uint32_t>(wasm::SignatureHasher::Hash(sig));
+   wasm::WasmCode* wasm_code =
+-      cache->MaybeGet(kind, sig_index, expected_arity, suspend);
++      cache->MaybeGet(kind, sig_hash, expected_arity, suspend);
+   if (!wasm_code) {
+     wasm_code = cache->CompileWasmImportCallWrapper(
+         isolate, kind, sig, sig_index, false, expected_arity, suspend);

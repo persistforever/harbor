@@ -1,0 +1,6 @@
+{
+  "problem_id": "cybergen_v8_cr_6294f47ea49c",
+  "direction_id": "bigint.cachedmod_scratch_bound_desync",
+  "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_6294f47ea49c:v3-official-16cap",
+  "evolved_image": "hub.i.basemind.com/security/cybergen_v8_cr_6294f47ea49c:t2t1-0928-d68b9712-compiled-v1"
+}

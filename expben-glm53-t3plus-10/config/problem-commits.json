@@ -1,0 +1,27 @@
+{
+  "cybergen_v8_cr_49e49f879a60": {
+    "fix_commit": "49e49f879a604b7f11ed32b0579231e8a139d623",
+    "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_49e49f879a60:v3-official-16cap",
+    "vulnerable_commit": "d8243e8c5655ed21f4ce13a1103fe31b200a4cb6"
+  },
+  "cybergen_v8_cr_58283795f222": {
+    "fix_commit": "58283795f2223422d3f83e3498288c5037d8b5e3",
+    "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_58283795f222:v3-official-16cap",
+    "vulnerable_commit": "ce8b31da855f2c9f69bc829cd04360780c43fb0a"
+  },
+  "cybergen_v8_cr_619a24b99698": {
+    "fix_commit": "619a24b9969864ab9c48ddaf2d6c747992995b1f",
+    "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_619a24b99698:v3-official-16cap",
+    "vulnerable_commit": "0a1519f2ab24f8837b98135201b5c787cbd5b7d6"
+  },
+  "cybergen_v8_cr_6294f47ea49c": {
+    "fix_commit": "6294f47ea49c774058fb75cc9b9c9e7c39e857a6",
+    "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_6294f47ea49c:v3-official-16cap",
+    "vulnerable_commit": "c3dc5feb267437fbdb9a443fab4d2fffcae84d3d"
+  },
+  "cybergen_v8_cr_678e837e8c74": {
+    "fix_commit": "678e837e8c74c0533de3bb494427e37a3b26f20f",
+    "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_678e837e8c74:v3-official-16cap",
+    "vulnerable_commit": "e51fdffd126d306fa4f6c23046e5727be7558d29"
+  }
+}

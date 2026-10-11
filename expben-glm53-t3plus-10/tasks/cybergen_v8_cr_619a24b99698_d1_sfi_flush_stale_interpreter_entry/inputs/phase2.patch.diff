@@ -1,0 +1,61 @@
+diff --git a/src/builtins/arm64/builtins-arm64.cc b/src/builtins/arm64/builtins-arm64.cc
+--- a/src/builtins/arm64/builtins-arm64.cc
++++ b/src/builtins/arm64/builtins-arm64.cc
+@@ -1336,11 +1336,14 @@ void Builtins::Generate_InterpreterEntryTrampoline(
+   // The bytecode array could have been flushed from the shared function info,
+   // if so, call into CompileLazy.
+   Label compile_lazy;
++  Label push_stack_frame;
+   __ IsObjectType(kInterpreterBytecodeArrayRegister, x4, x4,
+                   BYTECODE_ARRAY_TYPE);
+-  __ B(ne, &compile_lazy);
++  // A flushed SharedFunctionInfo hands its UncompiledData out of the tagged
++  // function_data field, so build the frame from whatever was loaded above
++  // instead of bailing out to the recompiler.
++  __ B(ne, &push_stack_frame);
+ 
+-  Label push_stack_frame;
+   Register feedback_vector = x2;
+   __ LoadFeedbackVector(feedback_vector, closure, x7, &push_stack_frame);
+ 
+diff --git a/src/builtins/x64/builtins-x64.cc b/src/builtins/x64/builtins-x64.cc
+--- a/src/builtins/x64/builtins-x64.cc
++++ b/src/builtins/x64/builtins-x64.cc
+@@ -1086,11 +1086,14 @@ void Builtins::Generate_InterpreterEntryTrampoline(
+   // The bytecode array could have been flushed from the shared function info,
+   // if so, call into CompileLazy.
+   Label compile_lazy;
++  Label push_stack_frame;
+   __ IsObjectType(kInterpreterBytecodeArrayRegister, BYTECODE_ARRAY_TYPE,
+                   kScratchRegister);
+-  __ j(not_equal, &compile_lazy);
++  // A flushed SharedFunctionInfo hands its UncompiledData out of the tagged
++  // function_data field, so build the frame from whatever was loaded above
++  // instead of bailing out to the recompiler.
++  __ j(not_equal, &push_stack_frame);
+ 
+-  Label push_stack_frame;
+   Register feedback_vector = rbx;
+   __ LoadFeedbackVector(feedback_vector, closure, &push_stack_frame,
+                         Label::kNear);
+diff --git a/src/heap/mark-compact.cc b/src/heap/mark-compact.cc
+--- a/src/heap/mark-compact.cc
++++ b/src/heap/mark-compact.cc
+@@ -3184,6 +3184,17 @@ void MarkCompactCollector::ClearFlushedJsFunctions() {
+                                      Tagged<Object> target) {
+       RecordSlot(object, slot, HeapObject::cast(target));
+     };
++    // The SharedFunctionInfo of this closure has already been downgraded to
++    // UncompiledData, i.e. its trusted_function_data handle is now empty while
++    // the tagged function_data field still points into the sandbox. A closure
++    // that owns a live FeedbackVector and is still entered through the
++    // interpreter trampoline keeps its code entry, so the two records of "is
++    // this function compiled?" are deliberately left out of sync.
++    if (IsFeedbackVector(flushed_js_function->raw_feedback_cell()->value()) &&
++        flushed_js_function->code(heap_->isolate())->builtin_id() ==
++            Builtin::kInterpreterEntryTrampoline) {
++      continue;
++    }
+     flushed_js_function->ResetIfCodeFlushed(heap_->isolate(),
+                                             gc_notify_updated_slot);
+   }

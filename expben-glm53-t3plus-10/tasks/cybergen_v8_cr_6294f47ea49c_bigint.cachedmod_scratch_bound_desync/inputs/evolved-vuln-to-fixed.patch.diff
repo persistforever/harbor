@@ -1,0 +1,80 @@
+--- a/src/bigint/bigint-inl.h
++++ b/src/bigint/bigint-inl.h
+@@ -971,10 +971,6 @@
+   // and on that scratch space being big enough for our needs:
+   // Since A.len() <= 2*n and inv.len == n+1, scratch_space == 3n + 1,
+   // and {n} is capped by the max cached divisor size.
+-  // {kCacheableDivisorDigits} is wider than that cap, but it only widens the
+-  // registration filter in {MutableBigInt_AbsoluteModAndCanonicalize}: a
+-  // divisor that long keeps taking the generic division path, so {n} here
+-  // stays bounded by {kMaxCachedModDivisorSize}.
+   static_assert(kSmallScratchSize >= kMaxCachedModDivisorSize * 3 + 1);
+   RWDigits scratch = GetSmallScratch_NoCheck();
+   scratch.set_len(scratch_space);
+--- a/src/bigint/bigint.h
++++ b/src/bigint/bigint.h
+@@ -327,11 +327,6 @@
+   // {kKaratsubaThreshold} defined in {bigint-inl.h}.
+   // 32 digits is enough for 2048 bit divisors on a 64-bit platform.
+   static constexpr uint32_t kMaxCachedModDivisorSize = 32;
+-  // Divisors up to this many digits are registered as candidates for the
+-  // cached-mod fast path. Intentionally wider than {kMaxCachedModDivisorSize}
+-  // above: registration only feeds the "have we seen this divisor enough?"
+-  // heuristic, it doesn't decide whether the cached fast path is taken.
+-  static constexpr int kCacheableDivisorDigits = 40;
+   void CachedMod_MakeInverse(Digits& B);
+   digit_t CachedMod(RWDigits& R, Digits& A);
+   Digits& GetCachedDivisor() {
+--- a/src/objects/bigint.cc
++++ b/src/objects/bigint.cc
+@@ -1672,11 +1672,13 @@
+       // divisor now. Only cache divisors that we see a lot.
+       static constexpr int kCachingThreshold = 100;
+       if (processor->inc_divisor_count() == kCachingThreshold) {
++        SBXCHECK(Y.len() >= 2 &&
++                 Y.len() <= bigint::Processor::kMaxCachedModDivisorSize);
+         heap->SetCachedBigIntDivisor(y);
+         processor->CachedMod_MakeInverse(Y);
+       }
+     } else if (Y.len() >= 2 &&
+-               Y.len() <= bigint::Processor::kCacheableDivisorDigits) {
++               Y.len() <= bigint::Processor::kMaxCachedModDivisorSize) {
+       heap->SetNextCachedBigIntDivisor(y);
+       processor->reset_divisor_count();
+     }
+--- a/test/mjsunit/sandbox/regress-496618662.js
++++ b/test/mjsunit/sandbox/regress-496618662.js
+@@ -0,0 +1,33 @@
++// Copyright 2026 the V8 project authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Flags: --sandbox-testing
++
++function makeBigInt(nDigits) {
++  let result = 0n;
++  for (let i = nDigits - 1; i >= 0; i--) {
++    result = (result << 64n) | BigInt(i + 1);
++  }
++  return result;
++}
++
++const mem = new DataView(new Sandbox.MemoryView(0, 0x100000000));
++const BITFIELD_OFFSET = 4;
++
++let y = makeBigInt(50);
++let y_addr = Sandbox.getAddressOf(y);
++const original_sign = mem.getUint32(y_addr + BITFIELD_OFFSET, true) & 1;
++
++mem.setUint32(y_addr + BITFIELD_OFFSET, (30 << 1) | original_sign, true);
++
++let x = makeBigInt(50);
++
++for (let i = 0; i < 99; i++) {
++  x % y;
++}
++
++y_addr = Sandbox.getAddressOf(y);
++mem.setUint32(y_addr + BITFIELD_OFFSET, (50 << 1) | original_sign, true);
++x % y;
++x % y;

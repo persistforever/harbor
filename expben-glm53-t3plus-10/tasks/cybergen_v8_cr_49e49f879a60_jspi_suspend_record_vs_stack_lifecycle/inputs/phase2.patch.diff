@@ -1,0 +1,72 @@
+diff --git a/src/wasm/module-instantiate.cc b/src/wasm/module-instantiate.cc
+--- a/src/wasm/module-instantiate.cc
++++ b/src/wasm/module-instantiate.cc
+@@ -732,14 +732,12 @@
+     // Resolve the shortcut to the underlying callable and continue.
+     ImportedFunctionEntry entry(direct_handle(data->instance_data(), isolate),
+                                 function_index);
+-    suspend_ = Cast<WasmImportData>(entry.implicit_arg())->suspend();
+     SetCallable(isolate, entry.callable());
+   }
+   if (!trusted_function_data_.is_null() &&
+       IsWasmJSFunctionData(*trusted_function_data_)) {
+     Tagged<WasmJSFunctionData> js_function_data =
+         Cast<WasmJSFunctionData>(*trusted_function_data_);
+-    suspend_ = js_function_data->GetSuspend();
+     if (!js_function_data->MatchesSignature(expected_sig_id)) {
+       return ImportCallKind::kLinkError;
+     }
+@@ -2376,8 +2374,9 @@
+               isolate_, callable, expected_sig);
+ 
+       imported_entry.SetWasmToWrapper(isolate_, callable,
+-                                      std::move(wrapper_handle), kNoSuspend,
+-                                      expected_sig, sig_index);
++                                      std::move(wrapper_handle),
++                                      resolved.suspend(), expected_sig,
++                                      sig_index);
+       return true;
+     }
+     case ImportCallKind::kRuntimeTypeError:
+diff --git a/src/wasm/wasm-js.cc b/src/wasm/wasm-js.cc
+--- a/src/wasm/wasm-js.cc
++++ b/src/wasm/wasm-js.cc
+@@ -2453,12 +2453,6 @@
+   i::DirectHandle<i::JSReceiver> callable =
+       Utils::OpenDirectHandle(*info[0].As<Function>());
+ 
+-  if (i::WasmExportedFunction::IsWasmExportedFunction(*callable) ||
+-      i::WasmJSFunction::IsWasmJSFunction(*callable)) {
+-    thrower.TypeError("Argument 0 must not be a WebAssembly function");
+-    return;
+-  }
+-
+   i::DirectHandle<i::WasmSuspendingObject> result =
+       i::WasmSuspendingObject::New(i_isolate, callable);
+   info.GetReturnValue().Set(Utils::ToLocal(i::Cast<i::JSObject>(result)));
+diff --git a/src/runtime/runtime-wasm.cc b/src/runtime/runtime-wasm.cc
+--- a/src/runtime/runtime-wasm.cc
++++ b/src/runtime/runtime-wasm.cc
+@@ -1274,6 +1274,22 @@
+ 
+   // Stack limit will be updated in WasmReturnPromiseOnSuspendAsm builtin.
+   DCHECK_EQ(active_stack->jmpbuf()->state, wasm::JumpBuffer::Active);
++  // Read-only observation of the state the DCHECK above asserts on: everything
++  // in this function (parent chain, active_stack/active_suspender hand-off,
++  // wasm_stacks() index and ownership) is maintained under the assumption that
++  // every suspending import really suspends. Dumping the stack state machine
++  // here lets that assumption be checked against a run where an import was
++  // recorded as suspending but linked as a plain call. Deliberately not
++  // promoted to a CHECK.
++  if (v8_flags.trace_wasm_stack_switching ||
++      v8_flags.stress_wasm_stack_switching) {
++    PrintF("[jspi] allocate suspender: active_stack=%p state=%d index=%zu "
++           "wasm_stacks=%zu stack_pool=%zu\n",
++           reinterpret_cast<void*>(active_stack),
++           static_cast<int>(active_stack->jmpbuf()->state),
++           active_stack->index(), isolate->wasm_stacks().size(),
++           isolate->stack_pool().Size());
++  }
+   return *suspender;
+ }
+ 

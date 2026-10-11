@@ -1,0 +1,482 @@
+[
+  {
+    "end_line": 151,
+    "file": "src/wasm/signature-hashing.h",
+    "side": "vuln",
+    "start_line": 151
+  },
+  {
+    "end_line": 152,
+    "file": "src/wasm/signature-hashing.h",
+    "side": "vuln",
+    "start_line": 152
+  },
+  {
+    "end_line": 147,
+    "file": "src/wasm/signature-hashing.h",
+    "side": "fixed",
+    "start_line": 147
+  },
+  {
+    "end_line": 148,
+    "file": "src/wasm/signature-hashing.h",
+    "side": "fixed",
+    "start_line": 148
+  },
+  {
+    "end_line": 149,
+    "file": "src/wasm/signature-hashing.h",
+    "side": "fixed",
+    "start_line": 149
+  },
+  {
+    "end_line": 150,
+    "file": "src/wasm/signature-hashing.h",
+    "side": "fixed",
+    "start_line": 150
+  },
+  {
+    "end_line": 220,
+    "file": "src/wasm/signature-hashing.h",
+    "side": "fixed",
+    "start_line": 220
+  },
+  {
+    "end_line": 221,
+    "file": "src/wasm/signature-hashing.h",
+    "side": "fixed",
+    "start_line": 221
+  },
+  {
+    "end_line": 32,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "vuln",
+    "start_line": 32
+  },
+  {
+    "end_line": 33,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "vuln",
+    "start_line": 33
+  },
+  {
+    "end_line": 29,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "fixed",
+    "start_line": 29
+  },
+  {
+    "end_line": 30,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "fixed",
+    "start_line": 30
+  },
+  {
+    "end_line": 35,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "vuln",
+    "start_line": 35
+  },
+  {
+    "end_line": 32,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "fixed",
+    "start_line": 32
+  },
+  {
+    "end_line": 40,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "vuln",
+    "start_line": 40
+  },
+  {
+    "end_line": 37,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "fixed",
+    "start_line": 37
+  },
+  {
+    "end_line": 45,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "vuln",
+    "start_line": 45
+  },
+  {
+    "end_line": 42,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "fixed",
+    "start_line": 42
+  },
+  {
+    "end_line": 53,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "vuln",
+    "start_line": 53
+  },
+  {
+    "end_line": 54,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "vuln",
+    "start_line": 54
+  },
+  {
+    "end_line": 50,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "fixed",
+    "start_line": 50
+  },
+  {
+    "end_line": 51,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "fixed",
+    "start_line": 51
+  },
+  {
+    "end_line": 83,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "vuln",
+    "start_line": 83
+  },
+  {
+    "end_line": 80,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "fixed",
+    "start_line": 80
+  },
+  {
+    "end_line": 81,
+    "file": "src/wasm/wasm-import-wrapper-cache.h",
+    "side": "fixed",
+    "start_line": 81
+  },
+  {
+    "end_line": 157,
+    "file": "src/wasm/wasm-import-wrapper-cache.cc",
+    "side": "vuln",
+    "start_line": 157
+  },
+  {
+    "end_line": 163,
+    "file": "src/wasm/wasm-import-wrapper-cache.cc",
+    "side": "vuln",
+    "start_line": 163
+  },
+  {
+    "end_line": 164,
+    "file": "src/wasm/wasm-import-wrapper-cache.cc",
+    "side": "vuln",
+    "start_line": 164
+  },
+  {
+    "end_line": 160,
+    "file": "src/wasm/wasm-import-wrapper-cache.cc",
+    "side": "fixed",
+    "start_line": 160
+  },
+  {
+    "end_line": 224,
+    "file": "src/wasm/wasm-import-wrapper-cache.cc",
+    "side": "vuln",
+    "start_line": 224
+  },
+  {
+    "end_line": 220,
+    "file": "src/wasm/wasm-import-wrapper-cache.cc",
+    "side": "fixed",
+    "start_line": 220
+  },
+  {
+    "end_line": 229,
+    "file": "src/wasm/wasm-import-wrapper-cache.cc",
+    "side": "vuln",
+    "start_line": 229
+  },
+  {
+    "end_line": 225,
+    "file": "src/wasm/wasm-import-wrapper-cache.cc",
+    "side": "fixed",
+    "start_line": 225
+  },
+  {
+    "end_line": 1877,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "vuln",
+    "start_line": 1877
+  },
+  {
+    "end_line": 1878,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "vuln",
+    "start_line": 1878
+  },
+  {
+    "end_line": 1882,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "vuln",
+    "start_line": 1882
+  },
+  {
+    "end_line": 1880,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "fixed",
+    "start_line": 1880
+  },
+  {
+    "end_line": 1888,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "vuln",
+    "start_line": 1888
+  },
+  {
+    "end_line": 1886,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "fixed",
+    "start_line": 1886
+  },
+  {
+    "end_line": 1925,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "vuln",
+    "start_line": 1925
+  },
+  {
+    "end_line": 1923,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "fixed",
+    "start_line": 1923
+  },
+  {
+    "end_line": 1924,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "fixed",
+    "start_line": 1924
+  },
+  {
+    "end_line": 1962,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "vuln",
+    "start_line": 1962
+  },
+  {
+    "end_line": 1963,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "vuln",
+    "start_line": 1963
+  },
+  {
+    "end_line": 1965,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "vuln",
+    "start_line": 1965
+  },
+  {
+    "end_line": 1962,
+    "file": "src/wasm/module-instantiate.cc",
+    "side": "fixed",
+    "start_line": 1962
+  },
+  {
+    "end_line": 4386,
+    "file": "src/wasm/module-compiler.cc",
+    "side": "vuln",
+    "start_line": 4386
+  },
+  {
+    "end_line": 4387,
+    "file": "src/wasm/module-compiler.cc",
+    "side": "vuln",
+    "start_line": 4387
+  },
+  {
+    "end_line": 4388,
+    "file": "src/wasm/module-compiler.cc",
+    "side": "vuln",
+    "start_line": 4388
+  },
+  {
+    "end_line": 4386,
+    "file": "src/wasm/module-compiler.cc",
+    "side": "fixed",
+    "start_line": 4386
+  },
+  {
+    "end_line": 4387,
+    "file": "src/wasm/module-compiler.cc",
+    "side": "fixed",
+    "start_line": 4387
+  },
+  {
+    "end_line": 643,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 643
+  },
+  {
+    "end_line": 644,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 644
+  },
+  {
+    "end_line": 645,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 645
+  },
+  {
+    "end_line": 643,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 643
+  },
+  {
+    "end_line": 686,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 686
+  },
+  {
+    "end_line": 688,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 688
+  },
+  {
+    "end_line": 685,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 685
+  },
+  {
+    "end_line": 694,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 694
+  },
+  {
+    "end_line": 691,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 691
+  },
+  {
+    "end_line": 2812,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 2812
+  },
+  {
+    "end_line": 2814,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "vuln",
+    "start_line": 2814
+  },
+  {
+    "end_line": 2810,
+    "file": "src/wasm/wasm-objects.cc",
+    "side": "fixed",
+    "start_line": 2810
+  },
+  {
+    "end_line": 662,
+    "file": "src/runtime/runtime-wasm.cc",
+    "side": "vuln",
+    "start_line": 662
+  },
+  {
+    "end_line": 663,
+    "file": "src/runtime/runtime-wasm.cc",
+    "side": "vuln",
+    "start_line": 663
+  },
+  {
+    "end_line": 664,
+    "file": "src/runtime/runtime-wasm.cc",
+    "side": "vuln",
+    "start_line": 664
+  },
+  {
+    "end_line": 662,
+    "file": "src/runtime/runtime-wasm.cc",
+    "side": "fixed",
+    "start_line": 662
+  },
+  {
+    "end_line": 663,
+    "file": "src/runtime/runtime-wasm.cc",
+    "side": "fixed",
+    "start_line": 663
+  },
+  {
+    "end_line": 742,
+    "file": "src/runtime/runtime-wasm.cc",
+    "side": "vuln",
+    "start_line": 742
+  },
+  {
+    "end_line": 744,
+    "file": "src/runtime/runtime-wasm.cc",
+    "side": "vuln",
+    "start_line": 744
+  },
+  {
+    "end_line": 742,
+    "file": "src/runtime/runtime-wasm.cc",
+    "side": "fixed",
+    "start_line": 742
+  },
+  {
+    "end_line": 3334,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3334
+  },
+  {
+    "end_line": 3339,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "vuln",
+    "start_line": 3339
+  },
+  {
+    "end_line": 3342,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3342
+  },
+  {
+    "end_line": 3343,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "vuln",
+    "start_line": 3343
+  },
+  {
+    "end_line": 3347,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3347
+  },
+  {
+    "end_line": 3348,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3348
+  },
+  {
+    "end_line": 3350,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3350
+  },
+  {
+    "end_line": 3351,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3351
+  },
+  {
+    "end_line": 3353,
+    "file": "src/codegen/x64/macro-assembler-x64.cc",
+    "side": "fixed",
+    "start_line": 3353
+  }
+]

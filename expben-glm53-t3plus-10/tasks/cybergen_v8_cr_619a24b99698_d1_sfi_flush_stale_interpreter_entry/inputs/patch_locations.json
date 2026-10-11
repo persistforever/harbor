@@ -1,0 +1,584 @@
+[
+  {
+    "end_line": 466,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 466
+  },
+  {
+    "end_line": 467,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 467
+  },
+  {
+    "end_line": 468,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 468
+  },
+  {
+    "end_line": 469,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 469
+  },
+  {
+    "end_line": 470,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 470
+  },
+  {
+    "end_line": 466,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 466
+  },
+  {
+    "end_line": 467,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 467
+  },
+  {
+    "end_line": 468,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 468
+  },
+  {
+    "end_line": 476,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 476
+  },
+  {
+    "end_line": 477,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 477
+  },
+  {
+    "end_line": 478,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 478
+  },
+  {
+    "end_line": 480,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 480
+  },
+  {
+    "end_line": 481,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 481
+  },
+  {
+    "end_line": 483,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 483
+  },
+  {
+    "end_line": 484,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 484
+  },
+  {
+    "end_line": 499,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 499
+  },
+  {
+    "end_line": 500,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 500
+  },
+  {
+    "end_line": 587,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 587
+  },
+  {
+    "end_line": 599,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 599
+  },
+  {
+    "end_line": 593,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 593
+  },
+  {
+    "end_line": 594,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 594
+  },
+  {
+    "end_line": 605,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 605
+  },
+  {
+    "end_line": 606,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 606
+  },
+  {
+    "end_line": 608,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 608
+  },
+  {
+    "end_line": 609,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 609
+  },
+  {
+    "end_line": 611,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 611
+  },
+  {
+    "end_line": 612,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 612
+  },
+  {
+    "end_line": 596,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 596
+  },
+  {
+    "end_line": 615,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 615
+  },
+  {
+    "end_line": 1332,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 1332
+  },
+  {
+    "end_line": 1333,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 1333
+  },
+  {
+    "end_line": 1334,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 1334
+  },
+  {
+    "end_line": 1338,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 1338
+  },
+  {
+    "end_line": 1353,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 1353
+  },
+  {
+    "end_line": 1354,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 1354
+  },
+  {
+    "end_line": 1355,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 1355
+  },
+  {
+    "end_line": 1356,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "fixed",
+    "start_line": 1356
+  },
+  {
+    "end_line": 1340,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 1340
+  },
+  {
+    "end_line": 1341,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 1341
+  },
+  {
+    "end_line": 1345,
+    "file": "src/builtins/arm64/builtins-arm64.cc",
+    "side": "vuln",
+    "start_line": 1345
+  },
+  {
+    "end_line": 737,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 737
+  },
+  {
+    "end_line": 738,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 738
+  },
+  {
+    "end_line": 739,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 739
+  },
+  {
+    "end_line": 740,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 740
+  },
+  {
+    "end_line": 741,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 741
+  },
+  {
+    "end_line": 737,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 737
+  },
+  {
+    "end_line": 738,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 738
+  },
+  {
+    "end_line": 739,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 739
+  },
+  {
+    "end_line": 746,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 746
+  },
+  {
+    "end_line": 747,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 747
+  },
+  {
+    "end_line": 748,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 748
+  },
+  {
+    "end_line": 750,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 750
+  },
+  {
+    "end_line": 751,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 751
+  },
+  {
+    "end_line": 752,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 752
+  },
+  {
+    "end_line": 754,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 754
+  },
+  {
+    "end_line": 755,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 755
+  },
+  {
+    "end_line": 771,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 771
+  },
+  {
+    "end_line": 772,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 772
+  },
+  {
+    "end_line": 850,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 850
+  },
+  {
+    "end_line": 862,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 862
+  },
+  {
+    "end_line": 854,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 854
+  },
+  {
+    "end_line": 855,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 855
+  },
+  {
+    "end_line": 856,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 856
+  },
+  {
+    "end_line": 866,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 866
+  },
+  {
+    "end_line": 869,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 869
+  },
+  {
+    "end_line": 870,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 870
+  },
+  {
+    "end_line": 1081,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 1081
+  },
+  {
+    "end_line": 1082,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 1082
+  },
+  {
+    "end_line": 1083,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 1083
+  },
+  {
+    "end_line": 1084,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 1084
+  },
+  {
+    "end_line": 1088,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 1088
+  },
+  {
+    "end_line": 1096,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 1096
+  },
+  {
+    "end_line": 1097,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 1097
+  },
+  {
+    "end_line": 1098,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 1098
+  },
+  {
+    "end_line": 1099,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "fixed",
+    "start_line": 1099
+  },
+  {
+    "end_line": 1090,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 1090
+  },
+  {
+    "end_line": 1091,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 1091
+  },
+  {
+    "end_line": 1095,
+    "file": "src/builtins/x64/builtins-x64.cc",
+    "side": "vuln",
+    "start_line": 1095
+  },
+  {
+    "end_line": 3193,
+    "file": "src/heap/mark-compact.cc",
+    "side": "vuln",
+    "start_line": 3193
+  },
+  {
+    "end_line": 3194,
+    "file": "src/heap/mark-compact.cc",
+    "side": "vuln",
+    "start_line": 3194
+  },
+  {
+    "end_line": 3195,
+    "file": "src/heap/mark-compact.cc",
+    "side": "vuln",
+    "start_line": 3195
+  },
+  {
+    "end_line": 3196,
+    "file": "src/heap/mark-compact.cc",
+    "side": "vuln",
+    "start_line": 3196
+  },
+  {
+    "end_line": 3197,
+    "file": "src/heap/mark-compact.cc",
+    "side": "vuln",
+    "start_line": 3197
+  },
+  {
+    "end_line": 3436,
+    "file": "src/codegen/code-stub-assembler.cc",
+    "side": "vuln",
+    "start_line": 3436
+  },
+  {
+    "end_line": 3438,
+    "file": "src/codegen/code-stub-assembler.cc",
+    "side": "fixed",
+    "start_line": 3438
+  },
+  {
+    "end_line": 3439,
+    "file": "src/codegen/code-stub-assembler.cc",
+    "side": "fixed",
+    "start_line": 3439
+  },
+  {
+    "end_line": 3440,
+    "file": "src/codegen/code-stub-assembler.cc",
+    "side": "fixed",
+    "start_line": 3440
+  },
+  {
+    "end_line": 3442,
+    "file": "src/codegen/code-stub-assembler.cc",
+    "side": "fixed",
+    "start_line": 3442
+  },
+  {
+    "end_line": 3443,
+    "file": "src/codegen/code-stub-assembler.cc",
+    "side": "fixed",
+    "start_line": 3443
+  },
+  {
+    "end_line": 729,
+    "file": "src/objects/shared-function-info-inl.h",
+    "side": "vuln",
+    "start_line": 729
+  },
+  {
+    "end_line": 738,
+    "file": "src/objects/shared-function-info-inl.h",
+    "side": "fixed",
+    "start_line": 738
+  },
+  {
+    "end_line": 739,
+    "file": "src/objects/shared-function-info-inl.h",
+    "side": "fixed",
+    "start_line": 739
+  },
+  {
+    "end_line": 740,
+    "file": "src/objects/shared-function-info-inl.h",
+    "side": "fixed",
+    "start_line": 740
+  },
+  {
+    "end_line": 741,
+    "file": "src/objects/shared-function-info-inl.h",
+    "side": "fixed",
+    "start_line": 741
+  },
+  {
+    "end_line": 742,
+    "file": "src/objects/shared-function-info-inl.h",
+    "side": "fixed",
+    "start_line": 742
+  },
+  {
+    "end_line": 743,
+    "file": "src/objects/shared-function-info-inl.h",
+    "side": "fixed",
+    "start_line": 743
+  },
+  {
+    "end_line": 745,
+    "file": "src/objects/shared-function-info-inl.h",
+    "side": "fixed",
+    "start_line": 745
+  }
+]

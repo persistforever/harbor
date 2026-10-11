@@ -1,0 +1,13 @@
+diff --git a/src/wasm/wasm-js.cc b/src/wasm/wasm-js.cc
+index cf8cdfeda97bd4225110b3d108ffa2cd46ff988f..600eee69d81bc47f41653e106a14afccba209ac7 100644
+--- a/src/wasm/wasm-js.cc
++++ b/src/wasm/wasm-js.cc
+@@ -3014,7 +3014,7 @@ void WebAssemblyExceptionGetArgImpl(
+   DCHECK(!IsUndefined(*maybe_values));
+   auto values = i::Cast<i::FixedArray>(maybe_values);
+   auto signature = tag_object->serialized_signature();
+-  if (index >= static_cast<uint32_t>(signature->length())) {
++  if (index >= static_cast<uint32_t>(values->length())) {
+     thrower.RangeError("Index out of range");
+     return;
+   }

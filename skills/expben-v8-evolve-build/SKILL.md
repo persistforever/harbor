@@ -90,12 +90,88 @@ Two things bootstrap deliberately does not do:
   `fix_commit` to `config/problem-commits.json` first — the generator can derive
   the vulnerable revision from it (`<fix>^`) without any phase-two dataset.
 
+### The V8 checkout must reach each problem's revision
+
+A fresh `gclient sync` only has what the pinned `ea348863` branch reaches, but
+`prepare_problem_build_inputs.py` runs `git archive <vulnerable>` and resolves
+`<fix>^` — both of which need those exact objects.  `bootstrap.sh --ensure
+--problem <id>` therefore **fetches them itself** before generating:
+
+```text
+revision present: 6294f47ea49c
+fetching e51fdffd126d into /data/temporal/v8
+```
+
+It tries `git fetch origin <sha>` first (chromium.googlesource.com serves
+reachable SHAs) and falls back to a full `git fetch origin`.  If a revision is
+still missing afterwards it says so and stops — it does not guess.  This needs
+network access to `chromium.googlesource.com`; there is no offline path.
+
 ### Growing this skill
 
 The intended workflow is that this file is edited as gaps are found: any step
 that was needed on a fresh host but is missing here is a bug in the skill, not
 in the operator.  When a fetch is added, record it in
 `config/cache-manifest.json` **and** the table above so the two cannot drift.
+
+## `--stage source` — build the source image, no cybergen
+
+The per-problem source image (`<registry>/cybergen_v8_cr_<sha12>:v3-official-16cap`)
+is what an evolve direction starts from.  **cybergen is not required to make
+one** — this pipeline builds it from a V8 checkout:
+
+```bash
+scripts/run-pipeline.sh --stage source \
+  --only cybergen_v8_cr_6294f47ea49c \
+  --v8-git /data/temporal/v8 \
+  --donor <any sec-bmk image>          # supplies /rlenv layout, users, MCP, wrapper
+```
+
+It writes `pipeline.env`'s `CONTEXT_ROOT/<problem>-source` and builds it to
+`<REGISTRY>/<problem>:v3-official-16cap`.  `--stage source` iterates
+`config/problem-commits.json` (per **problem**), not `problems.tsv` (per task) —
+otherwise the 5 problems × 2 directions of a task list would rebuild each source
+image twice.
+
+### What it has to do that the other stages do not
+
+1. **Build both sides.** Every sec-bmk image carries `vuln` *and* `fixed` d8, and
+   the grader's `diff` capability is the difference between them.  The
+   baseline/evolved stages only ever refine the vulnerable side, taking `fixed`
+   from the image they started from — impossible for a brand-new problem.
+   `rjob_compile_d8.sh` now takes `PHASE2_BINARY_SIDE` (default `vuln`) and is
+   run once per side against the matching tree.
+2. **Reconstruct the problem metadata.** `prepare_source_context.py` derives it
+   and it is verified byte-for-byte against a real source image — see below.
+
+### The recipe, and how it was verified
+
+```text
+problem_id      = f"cybergen_v8_cr_{fix[:12]}"
+vulnerable      = <fix>^
+bug_description = f"V8 vulnerability task generated from CR {fix[:12]}: {subject}"
+prompt          = assets/v8-prompt.template + those two + the patch
+patch.diff      = git diff <vuln> <fix>
+patch_locations = patch_locations_derive.py (the vendored ExploitBench parser)
+id/types/eval_flags = constants (16 `1day_*` capability names)
+```
+
+Regenerating those six files for `cybergen_v8_cr_6294f47ea49c` and diffing
+against the published `v3-official-16cap` image gave **6/6 byte-identical**.
+
+**Use `git -c core.abbrev=40 diff`.** Plain `git diff` abbreviates blob hashes.
+Note that `git diff --no-abbrev` is accepted but does **nothing** for diff — the
+flag exists for `show`/`log`. The shipped patches carry all 40 characters, and
+the prompt embeds the patch verbatim, so an abbreviated hash silently changes
+two of the six files.
+
+### Why the Dockerfile is multi-stage
+
+Each side needs the ~3.5 GiB toolchain injected.  A `rm -rf` in a later layer
+does not remove it from the image, so a single-stage two-pass build would ship
+~70 GiB.  `source.Dockerfile.template` uses one builder per side and copies only
+the finished `/rlenv/binaries/*` and the pruned source tree into the final
+stage.
 
 ## Run it
 
@@ -144,6 +220,50 @@ dry-run in the **builder** stage instead, right after `ADD source-deps.tar` and
 **before** `rjob_compile_d8.sh` — only the builder has the full tree, and the
 tree is still pristine there (the compatibility pass inserts `#include <vector>`
 into ~129 headers and would otherwise invalidate the check).
+
+**Both stages are affected, and the evolved stage fails more often.**  An evolve
+direction frequently *adds* a regression test, so the evolved patch carries a
+`+++ b/test/mjsunit/...` hunk by construction.  The evolved stage's dry-run has
+therefore also been removed; its `grep -Fq -- '+++ b/<path>'` checks still assert
+the shipped patch's content, which is the part that actually matters.
+
+### `rm -f` on a directory
+
+The same final stage ends with
+
+```dockerfile
+rm -f /tmp/expected-problem.list /tmp/pristine-testbed.list /tmp/expben-skill
+```
+
+`/tmp/expben-skill` is a **directory** (the skill scripts are COPIed there), and
+`rm -f` refuses directories — so this returns non-zero and fails the build with
+`rm: cannot remove '/tmp/expben-skill': Is a directory`.  Inherited from the
+upstream template; this pipeline uses `rm -rf`.
+
+Both of these are only reachable in the **evolved** stage, which is why the
+baseline smoke passes while the evolved one fails.
+
+## Reproducibility — measured
+
+Rebuilding `cybergen_v8_cr_489887978dfb` direction `066a7856` with
+`--configs release` produced a `release` d8 **bit-identical** to the published
+`t2t1-0928-066a7856-compiled-v1`:
+
+```
+release d8   rebuilt 64c0b31cea2de110   published 64c0b31cea2de110   ← identical
+debug        rebuilt d1487f507fb3ca6e   published 015f0fa8d7a12f26
+release-asan rebuilt d3e69ff36398f839   published 825ad5fa71178092
+```
+
+The other configurations differ because the smoke builds only `release`; the
+rest stay as the base image shipped them.  Structure (testbed layout, problem
+files, symlinks, modes) matched exactly.
+
+## Local only — never push
+
+This workflow produces **local docker images**; the machine that builds them is
+not the machine that consumes them.  Do not pass `--push`, and do not read a
+pipeline run that omitted `--push` as an incomplete one.
 
 `test/**` also matters for a second reason: a fix commit often **adds** new test
 files, which are absent from the vulnerable revision by construction.  The

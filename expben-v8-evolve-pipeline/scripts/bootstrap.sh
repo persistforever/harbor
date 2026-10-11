@@ -197,7 +197,27 @@ print(json.load(open('$ROOT/config/problem-commits.json')).get('$problem', {}).g
         note "add one (git -C $V8_DIR log --oneline <sha>) and re-run."
         MISSING=$((MISSING + 1))
       elif [[ "$MODE" == ensure ]]; then
-        note "generating from fix commit $fix_commit (needs the revision in $V8_DIR)"
+        note "generating from fix commit $fix_commit"
+        # The generator runs `git archive <vulnerable>` and resolves `<fix>^`, so
+        # both revisions must be present in the checkout.  Fetch them here rather
+        # than making the operator do it: a fresh gclient sync only has whatever
+        # the pinned ea348863 branch reaches.
+        vuln_commit="$(python3 -c "
+import json
+print(json.load(open('$ROOT/config/problem-commits.json')).get('$problem', {}).get('vulnerable_commit', ''))
+" 2>/dev/null || true)"
+        for rev in "$fix_commit" "$vuln_commit"; do
+          [[ -n "$rev" ]] || continue
+          if git -C "$V8_DIR" cat-file -e "${rev}^{commit}" 2>/dev/null; then
+            note "revision present: ${rev:0:12}"
+          else
+            note "fetching ${rev:0:12} into $V8_DIR"
+            git -C "$V8_DIR" fetch origin "$rev" 2>/dev/null \
+              || git -C "$V8_DIR" fetch origin 2>/dev/null || true
+            git -C "$V8_DIR" cat-file -e "${rev}^{commit}" 2>/dev/null \
+              || note "  still missing — fetch it by hand: git -C $V8_DIR fetch origin $rev"
+          fi
+        done
         PATH="$DT_DIR:$PATH" DEPOT_TOOLS_UPDATE=0 python3 \
           "$HERE/prepare_problem_build_inputs.py" \
           --problem-id "$problem" \

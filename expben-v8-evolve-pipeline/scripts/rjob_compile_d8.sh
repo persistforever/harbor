@@ -14,6 +14,12 @@ JOBS=${PHASE2_BUILD_JOBS:-16}
 # component builds and additionally need their lib*.so sidecars installed.
 CONFIGS=${PHASE2_BUILD_CONFIGS:-debug debug-asan release release-asan coverage}
 export PHASE2_BUILD_CONFIGS="$CONFIGS"
+# Which side of /rlenv/binaries this run populates.  The evolved/baseline stages
+# always refine the vulnerable side; the source stage builds both, running this
+# script once per side against the matching source tree.
+SIDE=${PHASE2_BINARY_SIDE:-vuln}
+export PHASE2_BINARY_SIDE="$SIDE"
+case "$SIDE" in vuln|fixed) ;; *) echo "bad PHASE2_BINARY_SIDE: $SIDE" >&2; exit 2 ;; esac
 
 [[ "$JOBS" =~ ^[1-9][0-9]*$ ]] || {
   echo "invalid PHASE2_BUILD_JOBS: $JOBS" >&2
@@ -130,7 +136,7 @@ echo "[rjob-docker] phase=source-patch complete"
 export PATH="$BUILD_ROOT:$PATH"
 command -v ninja >/dev/null
 command -v gn >/dev/null
-mkdir -p /tmp/phase2-build-evidence /rlenv/binaries/vuln
+mkdir -p /tmp/phase2-build-evidence "/rlenv/binaries/$SIDE"
 compat_args=/tmp/phase2-compat.gn
 # Compatibility args for building an older V8 source with the newer injected
 # build/.  `use_llvm_libatomic` matters because the newer build/config/BUILD.gn
@@ -218,7 +224,7 @@ for config in $CONFIGS; do
   d8="$out/d8"
   test -x "$d8"
   "$d8" --version | tee -a "$log"
-  dest="/rlenv/binaries/vuln/$config"
+  dest="/rlenv/binaries/$SIDE/$config"
   mkdir -p "$dest"
   # Drop the previous build products first: a component build must not end up
   # with a freshly linked d8 next to lib*.so left over from the base image.
@@ -254,7 +260,7 @@ payload = {
     'configs': {},
 }
 for config in os.environ['PHASE2_BUILD_CONFIGS'].split():
-    directory = Path(f'/rlenv/binaries/vuln/{config}')
+    directory = Path(f"/rlenv/binaries/{os.environ['PHASE2_BINARY_SIDE']}/{config}")
     d8 = directory / 'd8'
     payload['configs'][config] = {
         'path': str(d8),

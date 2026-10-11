@@ -1,0 +1,6 @@
+{
+  "problem_id": "cybergen_v8_cr_58283795f222",
+  "direction_id": "d1_sig_hash_tagged_projection_fold",
+  "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_58283795f222:v3-official-16cap",
+  "evolved_image": "hub.i.basemind.com/security/cybergen_v8_cr_58283795f222:t2t1-0928-72277aeb-compiled-v1"
+}

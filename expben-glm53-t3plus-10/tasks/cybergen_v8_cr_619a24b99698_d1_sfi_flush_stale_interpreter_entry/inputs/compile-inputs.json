@@ -1,0 +1,21 @@
+{
+  "build_jobs": 16,
+  "base_image": "hub.i.basemind.com/security/cybergen_v8_cr_619a24b99698:v3-official-16cap",
+  "expected_roots": [
+    "/data/temporal/expben_v8_build/problems/cybergen_v8_cr_619a24b99698/build-inputs",
+    "/data/temporal/expben-v8-cr-619a24b99698-build-inputs",
+    "/data/temporal/cybergen_v8_cr_619a24b99698-build-inputs"
+  ],
+  "status": "not_found",
+  "phase2_patch": "phase2.patch.diff",
+  "base_patch": "base-vuln-to-fixed.patch.diff",
+  "evolved_patch": "evolved-vuln-to-fixed.patch.diff",
+  "source_paths_in_patch": [
+    "src/builtins/arm64/builtins-arm64.cc",
+    "src/builtins/x64/builtins-x64.cc",
+    "src/heap/mark-compact.cc",
+    "src/codegen/code-stub-assembler.cc",
+    "src/objects/shared-function-info-inl.h"
+  ],
+  "shared_build_inputs": "../../build-inputs/cybergen_v8_cr_619a24b99698/status.json"
+}

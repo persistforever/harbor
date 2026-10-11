@@ -1,0 +1,43 @@
+diff --git a/src/codegen/code-stub-assembler.cc b/src/codegen/code-stub-assembler.cc
+--- a/src/codegen/code-stub-assembler.cc
++++ b/src/codegen/code-stub-assembler.cc
+@@ -3397,19 +3397,19 @@
+ TNode<Object> CodeStubAssembler::LoadSharedFunctionInfoData(
+     TNode<SharedFunctionInfo> sfi) {
+ #ifdef V8_ENABLE_SANDBOX
+-  // Return the trusted_function_data part if it is non-empty, otherwise the
+-  // regular function_data.
++  // Return the regular function_data when the tagged slot holds anything
++  // but the "cleared" Smi marker, else the trusted_function_data part.
+   TNode<IndirectPointerHandleT> trusted_data_handle =
+       LoadObjectField<IndirectPointerHandleT>(
+           sfi, SharedFunctionInfo::kTrustedFunctionDataOffset);
++  TNode<Object> function_data = LoadObjectField<Object>(
++      sfi, SharedFunctionInfo::kFunctionDataOffset);
+ 
+   return Select<Object>(
+-      Word32Equal(trusted_data_handle,
+-                  Int32Constant(kNullIndirectPointerHandle)),
+-      [=] {
+-        return LoadObjectField<Object>(sfi,
+-                                       SharedFunctionInfo::kFunctionDataOffset);
+-      },
++      Word32Or(Word32Equal(trusted_data_handle,
++                           Int32Constant(kNullIndirectPointerHandle)),
++               TaggedIsNotSmi(function_data)),
++      [=] { return function_data; },
+       [=] {
+         return ResolveIndirectPointerHandle(trusted_data_handle,
+                                             kUnknownIndirectPointerTag);
+diff --git a/src/objects/shared-function-info-inl.h b/src/objects/shared-function-info-inl.h
+--- a/src/objects/shared-function-info-inl.h
++++ b/src/objects/shared-function-info-inl.h
+@@ -125,7 +125,7 @@
+     DCHECK(IsBytecodeArray(value) || IsInterpreterData(value) || IsCode(value));
+     // Only one of trusted_function_data and function_data can be in use.
+     set_trusted_function_data(ExposedTrustedObject::cast(value), tag, mode);
+-    clear_function_data(kReleaseStore);
++    if (!HasUncompiledData()) clear_function_data(kReleaseStore);
+   } else {
+     DCHECK_EQ(type, DataType::kRegular);
+     // Only one of trusted_function_data and function_data can be in use.

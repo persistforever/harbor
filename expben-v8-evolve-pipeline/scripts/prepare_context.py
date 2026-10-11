@@ -307,7 +307,11 @@ def dockerfile_for(
             "      /testbed/problem/patch_locations.json /testbed/README.md; \\\n"
             "    chmod 0444 /testbed/patch.diff /testbed/problem/prompt \\\n"
             "      /testbed/problem/patch_locations.json /testbed/README.md; \\\n"
-            "    patch -d /testbed/source -p1 --dry-run < /testbed/patch.diff >/dev/null; \\\n"
+            # No `patch --dry-run` here: the final stage starts from the
+            # pristine base image, whose test/ (and other build dirs) are
+            # stripped, so an evolved patch that touches test/** cannot be
+            # dry-run against that tree.  The greps below still assert the
+            # shipped patch's content.
             + source_checks + "\n"
             "    echo '[rjob-docker] phase=runtime-smoke start'; \\\n"
             + config_checks + "\n"
@@ -316,7 +320,8 @@ def dockerfile_for(
             "    python3 -B /tmp/expben-skill/scripts/check_task_files.py; \\\n"
             "    (cd /testbed/problem && ls -A | sort) | diff -u /tmp/expected-problem.list -; \\\n"
             "    (cd /testbed && ls -A | sort) | diff -u /tmp/pristine-testbed.list -; \\\n"
-            "    rm -f /tmp/expected-problem.list /tmp/pristine-testbed.list \\\n"
+            # -rf, not -f: /tmp/expben-skill is a directory and `rm -f` refuses it.
+            "    rm -rf /tmp/expected-problem.list /tmp/pristine-testbed.list \\\n"
             "      /tmp/expben-skill\n"
         )
     return f'''# syntax=docker/dockerfile:1

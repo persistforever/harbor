@@ -1,0 +1,6 @@
+services:
+  main:
+    # V8 crash probes can otherwise leave multi-GB core files in /testbed and
+    # exhaust local Colima disk during exploratory agent runs.
+    ulimits:
+      core: 0

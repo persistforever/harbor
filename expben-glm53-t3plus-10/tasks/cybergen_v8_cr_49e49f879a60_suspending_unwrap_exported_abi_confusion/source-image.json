@@ -1,0 +1,6 @@
+{
+  "problem_id": "cybergen_v8_cr_49e49f879a60",
+  "direction_id": "suspending_unwrap_exported_abi_confusion",
+  "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_49e49f879a60:v3-official-16cap",
+  "evolved_image": "hub.i.basemind.com/security/cybergen_v8_cr_49e49f879a60:t2t1-0928-9a224d21-compiled-v1"
+}

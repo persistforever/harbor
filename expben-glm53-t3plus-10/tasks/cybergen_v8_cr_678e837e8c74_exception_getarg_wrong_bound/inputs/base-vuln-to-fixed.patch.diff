@@ -1,0 +1,365 @@
+diff --git a/src/diagnostics/objects-printer.cc b/src/diagnostics/objects-printer.cc
+index cc64e6d13d65550c6e87ee73c9df68aaeaabeb50..b3caf8028784cbbc31b56d860b2fa3fb31dbd28c 100644
+--- a/src/diagnostics/objects-printer.cc
++++ b/src/diagnostics/objects-printer.cc
+@@ -3212,7 +3212,7 @@ void WasmModuleObject::WasmModuleObjectPrint(std::ostream& os) {
+ 
+ void WasmGlobalObject::WasmGlobalObjectPrint(std::ostream& os) {
+   PrintHeader(os, "WasmGlobalObject");
+-  if (type().is_ref()) {
++  if (unsafe_type().is_ref()) {
+     os << "\n - tagged_buffer: " << Brief(tagged_buffer());
+   } else {
+     os << "\n - untagged_buffer: " << Brief(untagged_buffer());
+@@ -3220,7 +3220,7 @@ void WasmGlobalObject::WasmGlobalObjectPrint(std::ostream& os) {
+   os << "\n - offset: " << offset();
+   os << "\n - raw_type: " << raw_type();
+   os << "\n - is_mutable: " << is_mutable();
+-  os << "\n - type: " << type();
++  os << "\n - type: " << unsafe_type();
+   os << "\n - is_mutable: " << is_mutable();
+   os << "\n";
+ }
+diff --git a/src/sandbox/testing.cc b/src/sandbox/testing.cc
+index 175ea6d98b4d1c643f3293ddccd38e62065860f6..688ae40c55948a0ba030d2098a96e4973075a2ab 100644
+--- a/src/sandbox/testing.cc
++++ b/src/sandbox/testing.cc
+@@ -1202,6 +1202,8 @@ SandboxTesting::FieldOffsetMap& SandboxTesting::GetFieldOffsetMap() {
+         WasmTableObject::kRawTypeOffset;
+     fields[WASM_RESUME_DATA_TYPE]["trusted_suspender"] =
+         WasmResumeData::kTrustedSuspenderOffset;
++    fields[WASM_GLOBAL_OBJECT_TYPE]["raw_type"] =
++        WasmGlobalObject::kRawTypeOffset;
+ #endif  // V8_ENABLE_WEBASSEMBLY
+   }
+   return fields;
+diff --git a/src/wasm/c-api.cc b/src/wasm/c-api.cc
+index e7cf656ade4d767997e8ec3aafb65d447eb95660..b0f697bec685e81be96cf6efface7456bc433652 100644
+--- a/src/wasm/c-api.cc
++++ b/src/wasm/c-api.cc
+@@ -2026,7 +2026,7 @@ WASM_EXPORT auto Global::make(Store* store_abs, const GlobalType* type,
+ 
+ WASM_EXPORT auto Global::type() const -> own<GlobalType> {
+   i::DirectHandle<i::WasmGlobalObject> v8_global = impl(this)->v8_object();
+-  ValKind kind = V8ValueTypeToWasm(v8_global->type());
++  ValKind kind = V8ValueTypeToWasm(v8_global->unsafe_type());
+   Mutability mutability =
+       v8_global->is_mutable() ? Mutability::VAR : Mutability::CONST;
+   return GlobalType::make(ValType::make(kind), mutability);
+@@ -2037,7 +2037,7 @@ WASM_EXPORT auto Global::get() const -> Val {
+   v8::Isolate::Scope isolate_scope(reinterpret_cast<v8::Isolate*>(isolate));
+   PtrComprCageAccessScope ptr_compr_cage_access_scope(isolate);
+   i::DirectHandle<i::WasmGlobalObject> v8_global = impl(this)->v8_object();
+-  switch (v8_global->type().kind()) {
++  switch (v8_global->unsafe_type().kind()) {
+     case i::wasm::kI32:
+       return Val(v8_global->GetI32());
+     case i::wasm::kI64:
+@@ -2094,9 +2094,10 @@ WASM_EXPORT void Global::set(const Val& val) {
+       i::Isolate* isolate = impl(this)->store()->i_isolate();
+       auto external = WasmRefToV8(impl(this)->store()->i_isolate(), val.ref());
+       const char* error_message;
+-      auto internal = i::wasm::JSToWasmObject(isolate, nullptr, external,
+-                                              v8_global->type(), &error_message)
+-                          .ToHandleChecked();
++      auto internal =
++          i::wasm::JSToWasmObject(isolate, nullptr, external,
++                                  v8_global->unsafe_type(), &error_message)
++              .ToHandleChecked();
+       v8_global->SetRef(internal);
+       return;
+     }
+diff --git a/src/wasm/module-instantiate.cc b/src/wasm/module-instantiate.cc
+index a5a9b50f1a695514950e2f167cffa7d0f3ca9cad..72ef2d2f62517b25d458795a179983e2d496118c 100644
+--- a/src/wasm/module-instantiate.cc
++++ b/src/wasm/module-instantiate.cc
+@@ -2097,7 +2097,8 @@ bool InstanceBuilder::ProcessImportedWasmGlobalObject(
+   DirectHandle<WasmTrustedInstanceData> trusted_instance_data =
+       trusted_data(global.shared);
+ 
+-  wasm::ValueType actual_type = global_object->type();
++  wasm::ValueType actual_type = global_object->unsafe_type();
++  SBXCHECK(actual_type.is_valid());
+   const WasmModule* source_module = nullptr;
+   if (global_object->has_trusted_data()) {
+     source_module = global_object->trusted_data(isolate_)->module();
+diff --git a/src/wasm/wasm-js.cc b/src/wasm/wasm-js.cc
+index cf8cdfeda97bd4225110b3d108ffa2cd46ff988f..e6027fc41f16a073fecf6272e86f06271478ac8b 100644
+--- a/src/wasm/wasm-js.cc
++++ b/src/wasm/wasm-js.cc
+@@ -2703,9 +2703,10 @@ void WebAssemblyTableGrowImpl(const v8::FunctionCallbackInfo<v8::Value>& info) {
+ namespace {
+ V8_WARN_UNUSED_RESULT bool WasmObjectToJSReturnValue(
+     v8::ReturnValue<v8::Value>& return_value, i::DirectHandle<i::Object> value,
+-    i::wasm::ValueType type, i::Isolate* isolate, ErrorThrower* thrower) {
+-  if (type.is_abstract_ref()) {
+-    switch (type.generic_kind()) {
++    i::wasm::ValueType unsafe_type, i::Isolate* isolate,
++    ErrorThrower* thrower) {
++  if (unsafe_type.is_abstract_ref()) {
++    switch (unsafe_type.generic_kind()) {
+       case i::wasm::GenericKind::kStringViewIter:
+       case i::wasm::GenericKind::kStringViewWtf8:
+       case i::wasm::GenericKind::kStringViewWtf16:
+@@ -2713,7 +2714,7 @@ V8_WARN_UNUSED_RESULT bool WasmObjectToJSReturnValue(
+       case i::wasm::GenericKind::kNoExn:
+       case i::wasm::GenericKind::kCont:
+       case i::wasm::GenericKind::kNoCont:
+-        thrower->TypeError("invalid type %s", type.name().c_str());
++        thrower->TypeError("invalid type %s", unsafe_type.name().c_str());
+         return false;
+       default:
+         break;
+@@ -3125,7 +3126,7 @@ void WebAssemblyGlobalGetValueCommon(WasmJSApiScope& js_api_scope) {
+ 
+   v8::ReturnValue<v8::Value> return_value = info.GetReturnValue();
+ 
+-  i::wasm::ValueType receiver_type = receiver->type();
++  i::wasm::ValueType receiver_type = receiver->unsafe_type();
+   switch (receiver_type.kind()) {
+     case i::wasm::kI32:
+       return_value.Set(receiver->GetI32());
+@@ -3192,7 +3193,8 @@ void WebAssemblyGlobalSetValueImpl(
+   }
+ 
+   Local<Context> context = isolate->GetCurrentContext();
+-  switch (receiver->type().kind()) {
++  i::wasm::ValueType unsafe_type = receiver->unsafe_type();
++  switch (unsafe_type.kind()) {
+     case i::wasm::kI32: {
+       int32_t i32_value = 0;
+       if (!info[0]->Int32Value(context).To(&i32_value)) {
+@@ -3236,7 +3238,7 @@ void WebAssemblyGlobalSetValueImpl(
+               : nullptr;
+       i::DirectHandle<i::Object> value = Utils::OpenDirectHandle(*info[0]);
+       const char* error_message;
+-      if (!i::wasm::JSToWasmObject(i_isolate, module, value, receiver->type(),
++      if (!i::wasm::JSToWasmObject(i_isolate, module, value, unsafe_type,
+                                    &error_message)
+                .ToHandle(&value)) {
+         thrower.TypeError("%s", error_message);
+@@ -3262,7 +3264,7 @@ void WebAssemblyGlobalType(const v8::FunctionCallbackInfo<v8::Value>& info) {
+   EXTRACT_THIS(global, WasmGlobalObject);
+ 
+   auto type = i::wasm::GetTypeForGlobal(i_isolate, global->is_mutable(),
+-                                        global->type());
++                                        global->unsafe_type());
+   info.GetReturnValue().Set(Utils::ToLocal(type));
+ }
+ 
+diff --git a/src/wasm/wasm-module.cc b/src/wasm/wasm-module.cc
+index 2570b2637e508f12ee87d7ccfe34151eb0db22b8..323f7d6b5600c4150f6d5394df6e1ca35ee5d3bc 100644
+--- a/src/wasm/wasm-module.cc
++++ b/src/wasm/wasm-module.cc
+@@ -331,7 +331,7 @@ DirectHandle<JSObject> GetTypeForFunction(Isolate* isolate,
+ }
+ 
+ DirectHandle<JSObject> GetTypeForGlobal(Isolate* isolate, bool is_mutable,
+-                                        ValueType type) {
++                                        ValueType unsafe_type) {
+   Factory* factory = isolate->factory();
+ 
+   DirectHandle<JSFunction> object_function = isolate->object_function();
+@@ -342,7 +342,7 @@ DirectHandle<JSObject> GetTypeForGlobal(Isolate* isolate, bool is_mutable,
+   JSObject::AddProperty(isolate, object, mutable_string,
+                         factory->ToBoolean(is_mutable), NONE);
+   JSObject::AddProperty(isolate, object, value_string,
+-                        ToValueTypeString(isolate, type), NONE);
++                        ToValueTypeString(isolate, unsafe_type), NONE);
+ 
+   return object;
+ }
+diff --git a/src/wasm/wasm-objects-inl.h b/src/wasm/wasm-objects-inl.h
+index 1a4d15465c4bcd8a24ef22bc7851c189401ef1ac..fac2c68c1ebb09e92766b5d22b45ec399ce0408e 100644
+--- a/src/wasm/wasm-objects-inl.h
++++ b/src/wasm/wasm-objects-inl.h
+@@ -107,7 +107,7 @@ TRUSTED_POINTER_ACCESSORS(WasmGlobalObject, trusted_data,
+                           WasmTrustedInstanceData, kTrustedDataOffset,
+                           kWasmTrustedInstanceDataIndirectPointerTag)
+ 
+-wasm::ValueType WasmGlobalObject::type() const {
++wasm::ValueType WasmGlobalObject::unsafe_type() const {
+   // Various consumers of ValueKind (e.g. ValueKind::name()) use the raw enum
+   // value as index into a global array. As such, if the index is corrupted
+   // (which must be assumed, as it comes from within the sandbox), this can
+@@ -118,42 +118,44 @@ wasm::ValueType WasmGlobalObject::type() const {
+   SBXCHECK(type.is_valid());
+   return type;
+ }
+-void WasmGlobalObject::set_type(wasm::ValueType value) {
++void WasmGlobalObject::set_unsafe_type(wasm::ValueType value) {
+   set_raw_type(static_cast<int>(value.raw_bit_field()));
+ }
+ 
+-int WasmGlobalObject::type_size() const { return type().value_kind_size(); }
++int WasmGlobalObject::unsafe_type_size() const {
++  return unsafe_type().value_kind_size();
++}
+ 
+ Address WasmGlobalObject::address() const {
+-  DCHECK(!type().is_ref());
+-  DCHECK_LE(offset() + type_size(), untagged_buffer()->byte_length());
++  DCHECK(!unsafe_type().is_ref());
++  DCHECK_LE(offset() + unsafe_type_size(), untagged_buffer()->byte_length());
+   return reinterpret_cast<Address>(untagged_buffer()->backing_store()) +
+          offset();
+ }
+ 
+-int32_t WasmGlobalObject::GetI32() {
++int32_t WasmGlobalObject::GetI32() const {
+   return base::ReadUnalignedValue<int32_t>(address());
+ }
+ 
+-int64_t WasmGlobalObject::GetI64() {
++int64_t WasmGlobalObject::GetI64() const {
+   return base::ReadUnalignedValue<int64_t>(address());
+ }
+ 
+-float WasmGlobalObject::GetF32() {
++float WasmGlobalObject::GetF32() const {
+   return base::ReadUnalignedValue<float>(address());
+ }
+ 
+-double WasmGlobalObject::GetF64() {
++double WasmGlobalObject::GetF64() const {
+   return base::ReadUnalignedValue<double>(address());
+ }
+ 
+-uint8_t* WasmGlobalObject::GetS128RawBytes() {
++uint8_t* WasmGlobalObject::GetS128RawBytes() const {
+   return reinterpret_cast<uint8_t*>(address());
+ }
+ 
+-DirectHandle<Object> WasmGlobalObject::GetRef() {
++DirectHandle<Object> WasmGlobalObject::GetRef() const {
+   // We use this getter for externref, funcref, and stringref.
+-  DCHECK(type().is_ref());
++  DCHECK(unsafe_type().is_ref());
+   return direct_handle(tagged_buffer()->get(offset()), Isolate::Current());
+ }
+ 
+@@ -174,7 +176,7 @@ void WasmGlobalObject::SetF64(double value) {
+ }
+ 
+ void WasmGlobalObject::SetRef(DirectHandle<Object> value) {
+-  DCHECK(type().is_ref());
++  DCHECK(unsafe_type().is_ref());
+   tagged_buffer()->set(offset(), *value);
+ }
+ 
+diff --git a/src/wasm/wasm-objects.cc b/src/wasm/wasm-objects.cc
+index 045007963e3df6f292707b998b9cdff2048f5b31..553177a816421776e397573adb287cfa4e061f8e 100644
+--- a/src/wasm/wasm-objects.cc
++++ b/src/wasm/wasm-objects.cc
+@@ -1451,7 +1451,7 @@ MaybeDirectHandle<WasmGlobalObject> WasmGlobalObject::New(
+     } else {
+       global_obj->clear_trusted_data();
+     }
+-    global_obj->set_type(type);
++    global_obj->set_unsafe_type(type);
+     global_obj->set_offset(offset);
+     global_obj->set_is_mutable(is_mutable);
+   }
+@@ -3760,13 +3760,17 @@ MaybeDirectHandle<Object> JSToWasmObject(Isolate* isolate,
+ MaybeDirectHandle<Object> JSToWasmObject(Isolate* isolate,
+                                          const WasmModule* module,
+                                          DirectHandle<Object> value,
+-                                         ValueType expected,
++                                         ValueType unsafe_expected_type,
+                                          const char** error_message) {
+   CanonicalValueType canonical;
+-  if (expected.has_index()) {
+-    canonical = module->canonical_type(expected);
++  if (unsafe_expected_type.has_index()) {
++    SBXCHECK(module->has_type(unsafe_expected_type.ref_index()));
++    canonical = module->canonical_type(unsafe_expected_type);
+   } else {
+-    canonical = CanonicalValueType{expected};
++    // Some code paths did check this before, but to be on the safe side we
++    // check again here.
++    SBXCHECK(unsafe_expected_type.is_valid());
++    canonical = CanonicalValueType{unsafe_expected_type};
+   }
+   return JSToWasmObject(isolate, value, canonical, error_message);
+ }
+diff --git a/src/wasm/wasm-objects.h b/src/wasm/wasm-objects.h
+index c0a675adfd80ab1e557e8a3f1e81ef693f9fed26..847eeb406e86dd1e7f3a3687890c8b0512bae07b 100644
+--- a/src/wasm/wasm-objects.h
++++ b/src/wasm/wasm-objects.h
+@@ -437,7 +437,7 @@ class WasmGlobalObject
+ 
+   DECL_ACCESSORS(untagged_buffer, Tagged<JSArrayBuffer>)
+   DECL_ACCESSORS(tagged_buffer, Tagged<FixedArray>)
+-  DECL_PRIMITIVE_ACCESSORS(type, wasm::ValueType)
++  DECL_PRIMITIVE_ACCESSORS(unsafe_type, wasm::ValueType)
+   DECL_TRUSTED_POINTER_ACCESSORS(trusted_data, WasmTrustedInstanceData)
+ 
+   // Dispatched behavior.
+@@ -449,14 +449,14 @@ class WasmGlobalObject
+       MaybeDirectHandle<FixedArray> maybe_tagged_buffer, wasm::ValueType type,
+       int32_t offset, bool is_mutable);
+ 
+-  inline int type_size() const;
++  inline int unsafe_type_size() const;
+ 
+-  inline int32_t GetI32();
+-  inline int64_t GetI64();
+-  inline float GetF32();
+-  inline double GetF64();
+-  inline uint8_t* GetS128RawBytes();
+-  inline DirectHandle<Object> GetRef();
++  inline int32_t GetI32() const;
++  inline int64_t GetI64() const;
++  inline float GetF32() const;
++  inline double GetF64() const;
++  inline uint8_t* GetS128RawBytes() const;
++  inline DirectHandle<Object> GetRef() const;
+ 
+   inline void SetI32(int32_t value);
+   inline void SetI64(int64_t value);
+diff --git a/test/fuzzer/wasm/init-expr.cc b/test/fuzzer/wasm/init-expr.cc
+index 826d18fac92f7e15aa1dccb7f6ad07a329ab1e12..af41d57b81a995b55a0d122504581769a399db2b 100644
+--- a/test/fuzzer/wasm/init-expr.cc
++++ b/test/fuzzer/wasm/init-expr.cc
+@@ -140,7 +140,7 @@ void FuzzIt(base::Vector<const uint8_t> data) {
+     snprintf(buffer, sizeof buffer, "g%zu", i);
+     auto global =
+         Cast<WasmGlobalObject>(GetExport(i_isolate, instance, buffer));
+-    switch (global->type().kind()) {
++    switch (global->unsafe_type().kind()) {
+       case ValueKind::kF32: {
+         float global_val = global->GetF32();
+         float func_val;
+@@ -201,7 +201,7 @@ void FuzzIt(base::Vector<const uint8_t> data) {
+         CHECK_EQ(IsNullOrWasmNull(*global_val),
+                  IsNullOrWasmNull(*function_result));
+         if (!IsNullOrWasmNull(*global_val)) {
+-          if (IsSubtypeOf(global->type(), kWasmFuncRef, module)) {
++          if (IsSubtypeOf(global->unsafe_type(), kWasmFuncRef, module)) {
+             // For any function the global should be an internal function
+             // whose external function equals the call result. (The call goes
+             // through JS conversions while the global is accessed directly.)
+diff --git a/test/mjsunit/sandbox/regress/regress-469759459.js b/test/mjsunit/sandbox/regress/regress-469759459.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..078e6b56bbab135a3f59c149a1e86ffef1c8d23b
+--- /dev/null
++++ b/test/mjsunit/sandbox/regress/regress-469759459.js
+@@ -0,0 +1,18 @@
++// Copyright 2026 the V8 project authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Flags: --sandbox-testing
++
++d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
++
++const builder = new WasmModuleBuilder();
++builder.addArray(kWasmI32, true);
++builder.addGlobal(wasmRefNullType(0), true, false,
++  [...wasmI32Const(1), kGCPrefix, kExprArrayNewDefault, 0]);
++builder.addExportOfKind('g', kExternalGlobal, 0);
++const instance = builder.instantiate();
++
++Sandbox.corruptObjectField(instance.exports.g, 'raw_type', 0x747);
++
++instance.exports.g.value = {};

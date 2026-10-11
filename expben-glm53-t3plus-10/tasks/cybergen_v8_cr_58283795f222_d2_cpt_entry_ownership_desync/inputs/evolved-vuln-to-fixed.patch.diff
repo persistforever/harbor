@@ -1,0 +1,66 @@
+--- a/src/wasm/wasm-objects.cc
++++ b/src/wasm/wasm-objects.cc
+@@ -2054,12 +2054,7 @@
+     return;
+   }
+   auto& [code_pointer, wrapper_code] = entry->second;
+-  // The entry recorded for this index is not necessarily the target the slot
+-  // currently holds: the slot can have been overwritten with a non-wrapper
+-  // target while this map still owns the wrapper entry. Release whichever
+-  // entry the slot points at; the recorded entry is not needed for that.
+-  wasm::GetProcessWideWasmCodePointerTable()->FreeEntry(call_target);
+-  USE(code_pointer);
++  wasm::GetProcessWideWasmCodePointerTable()->FreeEntry(code_pointer);
+   if (wrapper_code) {
+     // TODO(clemensb): We should speed this up by doing
+     // {WasmCodeRefScope::AddRef} and then {DecRefOnLiveCode}.
+@@ -2088,10 +2083,14 @@
+   DCHECK(sig_id.valid());
+   const int offset = OffsetOf(index);
+   if (!v8_flags.wasm_jitless) {
+-    // Install the target without reconciling the ownership record kept by
+-    // {WasmDispatchTableData}: an entry that the slot previously held is left
+-    // in the map, so the map and the slot's target field can disagree about
+-    // which code pointer table entry this index owns.
++    // When overwriting an existing entry, we must decrement the refcount
++    // of any overwritten wrappers. When initializing an entry, we must not
++    // read uninitialized memory.
++    if (new_or_existing == kExistingEntry) {
++      WasmCodePointer old_target =
++          WasmCodePointer{ReadField<uint32_t>(offset + kTargetBias)};
++      offheap_data()->Remove(index, old_target);
++    }
+     WriteField<uint32_t>(offset + kTargetBias, call_target.value());
+   } else {
+ #if V8_ENABLE_DRUMBRAKE
+--- a/src/codegen/x64/macro-assembler-x64.cc
++++ b/src/codegen/x64/macro-assembler-x64.cc
+@@ -3331,16 +3331,26 @@
+   Move(kScratchRegister, global_jump_table);
+ 
+ #ifdef V8_ENABLE_SANDBOX
++  Label fail, ok;
++
+   static_assert(sizeof(wasm::WasmCodePointerTableEntry) == 16);
+   shlq(target, Immediate(4));
++
+   cmpl(Operand(kScratchRegister, target, ScaleFactor::times_1,
+                wasm::WasmCodePointerTable::kOffsetOfSignatureHash),
+        Immediate(static_cast<int32_t>(signature_hash)));
+-  SbxCheck(Condition::equal, AbortReason::kWasmSignatureMismatch);
++  j(Condition::kNotEqual, &fail, Label::Distance::kNear);
++
+   cmpl(Operand(kScratchRegister, target, ScaleFactor::times_1,
+                wasm::WasmCodePointerTable::kOffsetOfSignatureHash + 4),
+        Immediate(static_cast<int32_t>(signature_hash >> 32)));
+-  SbxCheck(Condition::equal, AbortReason::kWasmSignatureMismatch);
++  j(Condition::kNotEqual, &fail, Label::Distance::kNear);
++  jmp(&ok, Label::Distance::kNear);
++
++  bind(&fail);
++  Abort(AbortReason::kWasmSignatureMismatch);
++
++  bind(&ok);
+   movq(target, Operand(kScratchRegister, target, ScaleFactor::times_1, 0));
+ #else
+   static_assert(sizeof(wasm::WasmCodePointerTableEntry) == 8);

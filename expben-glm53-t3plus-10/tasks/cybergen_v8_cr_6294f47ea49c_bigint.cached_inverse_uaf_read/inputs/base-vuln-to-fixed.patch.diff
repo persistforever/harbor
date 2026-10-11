@@ -1,0 +1,52 @@
+diff --git a/src/objects/bigint.cc b/src/objects/bigint.cc
+index 60abbbc8ebf37858196eb1cb9206fcfc4fcb0134..34f66e25ed5e426f20cbb0bc55e1de14a1b24e40 100644
+--- a/src/objects/bigint.cc
++++ b/src/objects/bigint.cc
+@@ -1672,6 +1672,8 @@ int32_t MutableBigInt_AbsoluteModAndCanonicalize(Address result_addr,
+       // divisor now. Only cache divisors that we see a lot.
+       static constexpr int kCachingThreshold = 100;
+       if (processor->inc_divisor_count() == kCachingThreshold) {
++        SBXCHECK(Y.len() >= 2 &&
++                 Y.len() <= bigint::Processor::kMaxCachedModDivisorSize);
+         heap->SetCachedBigIntDivisor(y);
+         processor->CachedMod_MakeInverse(Y);
+       }
+diff --git a/test/mjsunit/sandbox/regress-496618662.js b/test/mjsunit/sandbox/regress-496618662.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..15689fb14525818573992a1f7e3f647748df2797
+--- /dev/null
++++ b/test/mjsunit/sandbox/regress-496618662.js
+@@ -0,0 +1,33 @@
++// Copyright 2026 the V8 project authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Flags: --sandbox-testing
++
++function makeBigInt(nDigits) {
++  let result = 0n;
++  for (let i = nDigits - 1; i >= 0; i--) {
++    result = (result << 64n) | BigInt(i + 1);
++  }
++  return result;
++}
++
++const mem = new DataView(new Sandbox.MemoryView(0, 0x100000000));
++const BITFIELD_OFFSET = 4;
++
++let y = makeBigInt(50);
++let y_addr = Sandbox.getAddressOf(y);
++const original_sign = mem.getUint32(y_addr + BITFIELD_OFFSET, true) & 1;
++
++mem.setUint32(y_addr + BITFIELD_OFFSET, (30 << 1) | original_sign, true);
++
++let x = makeBigInt(50);
++
++for (let i = 0; i < 99; i++) {
++  x % y;
++}
++
++y_addr = Sandbox.getAddressOf(y);
++mem.setUint32(y_addr + BITFIELD_OFFSET, (50 << 1) | original_sign, true);
++x % y;
++x % y;

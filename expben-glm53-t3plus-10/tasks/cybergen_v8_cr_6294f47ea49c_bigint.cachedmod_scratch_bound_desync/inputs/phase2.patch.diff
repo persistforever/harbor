@@ -1,0 +1,44 @@
+diff --git a/src/bigint/bigint-inl.h b/src/bigint/bigint-inl.h
+index ac2a413..38d3489 100644
+--- a/src/bigint/bigint-inl.h
++++ b/src/bigint/bigint-inl.h
+@@ -971,6 +971,10 @@ ALWAYS_INLINE digit_t Processor::CachedMod(RWDigits& R, Digits& A) {
+   // and on that scratch space being big enough for our needs:
+   // Since A.len() <= 2*n and inv.len == n+1, scratch_space == 3n + 1,
+   // and {n} is capped by the max cached divisor size.
++  // {kCacheableDivisorDigits} is wider than that cap, but it only widens the
++  // registration filter in {MutableBigInt_AbsoluteModAndCanonicalize}: a
++  // divisor that long keeps taking the generic division path, so {n} here
++  // stays bounded by {kMaxCachedModDivisorSize}.
+   static_assert(kSmallScratchSize >= kMaxCachedModDivisorSize * 3 + 1);
+   RWDigits scratch = GetSmallScratch_NoCheck();
+   scratch.set_len(scratch_space);
+diff --git a/src/bigint/bigint.h b/src/bigint/bigint.h
+index f3d3189..3c5d168 100644
+--- a/src/bigint/bigint.h
++++ b/src/bigint/bigint.h
+@@ -327,6 +327,11 @@ class Processor {
+   // {kKaratsubaThreshold} defined in {bigint-inl.h}.
+   // 32 digits is enough for 2048 bit divisors on a 64-bit platform.
+   static constexpr uint32_t kMaxCachedModDivisorSize = 32;
++  // Divisors up to this many digits are registered as candidates for the
++  // cached-mod fast path. Intentionally wider than {kMaxCachedModDivisorSize}
++  // above: registration only feeds the "have we seen this divisor enough?"
++  // heuristic, it doesn't decide whether the cached fast path is taken.
++  static constexpr int kCacheableDivisorDigits = 40;
+   void CachedMod_MakeInverse(Digits& B);
+   digit_t CachedMod(RWDigits& R, Digits& A);
+   Digits& GetCachedDivisor() {
+diff --git a/src/objects/bigint.cc b/src/objects/bigint.cc
+index 60abbbc..f9771bc 100644
+--- a/src/objects/bigint.cc
++++ b/src/objects/bigint.cc
+@@ -1676,7 +1676,7 @@ int32_t MutableBigInt_AbsoluteModAndCanonicalize(Address result_addr,
+         processor->CachedMod_MakeInverse(Y);
+       }
+     } else if (Y.len() >= 2 &&
+-               Y.len() <= bigint::Processor::kMaxCachedModDivisorSize) {
++               Y.len() <= bigint::Processor::kCacheableDivisorDigits) {
+       heap->SetNextCachedBigIntDivisor(y);
+       processor->reset_divisor_count();
+     }

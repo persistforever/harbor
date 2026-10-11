@@ -1,0 +1,19 @@
+{
+  "build_jobs": 16,
+  "base_image": "hub.i.basemind.com/security/cybergen_v8_cr_49e49f879a60:v3-official-16cap",
+  "expected_roots": [
+    "/data/temporal/expben_v8_build/problems/cybergen_v8_cr_49e49f879a60/build-inputs",
+    "/data/temporal/expben-v8-cr-49e49f879a60-build-inputs",
+    "/data/temporal/cybergen_v8_cr_49e49f879a60-build-inputs"
+  ],
+  "status": "not_found",
+  "phase2_patch": "phase2.patch.diff",
+  "base_patch": "base-vuln-to-fixed.patch.diff",
+  "evolved_patch": "evolved-vuln-to-fixed.patch.diff",
+  "source_paths_in_patch": [
+    "src/wasm/wasm-js.cc",
+    "src/wasm/module-instantiate.cc",
+    "test/mjsunit/sandbox/regress-432289371.js"
+  ],
+  "shared_build_inputs": "../../build-inputs/cybergen_v8_cr_49e49f879a60/status.json"
+}

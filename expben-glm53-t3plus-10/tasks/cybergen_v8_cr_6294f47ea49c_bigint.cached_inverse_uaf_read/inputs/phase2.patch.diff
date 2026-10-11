@@ -1,0 +1,46 @@
+diff --git a/src/bigint/bigint-internal.cc b/src/bigint/bigint-internal.cc
+index 049d40d..94b780b 100644
+--- a/src/bigint/bigint-internal.cc
++++ b/src/bigint/bigint-internal.cc
+@@ -137,6 +137,11 @@ RWDigits& Processor::AllocateCachedInverseFor(Digits& divisor) {
+   return cached_inverse_;
+ }
+ 
++void Processor::ReleaseCachedInverseStorage() {
++  cached_inverse_storage_.reset();
++  cached_inverse_allocated_length_ = 0;
++}
++
+ void ProcessorImpl::CachedMod_MakeInverse(Digits& B) {
+   uint32_t n = B.len();
+   RWDigits& Inv = AllocateCachedInverseFor(B);
+diff --git a/src/bigint/bigint.h b/src/bigint/bigint.h
+index f3d3189..20b0a38 100644
+--- a/src/bigint/bigint.h
++++ b/src/bigint/bigint.h
+@@ -329,6 +329,10 @@ class Processor {
+   static constexpr uint32_t kMaxCachedModDivisorSize = 32;
+   void CachedMod_MakeInverse(Digits& B);
+   digit_t CachedMod(RWDigits& R, Digits& A);
++  // Companion to {CachedMod_MakeInverse}: drops the memory that backs the
++  // cached divisor and its inverse. A subsequent {CachedMod_MakeInverse} will
++  // allocate it again.
++  void ReleaseCachedInverseStorage();
+   Digits& GetCachedDivisor() {
+     BIGINT_H_DCHECK(cached_divisor_.digits() != nullptr);
+     return cached_divisor_;
+diff --git a/src/objects/bigint.cc b/src/objects/bigint.cc
+index 60abbbc..e66b900 100644
+--- a/src/objects/bigint.cc
++++ b/src/objects/bigint.cc
+@@ -1679,6 +1679,10 @@ int32_t MutableBigInt_AbsoluteModAndCanonicalize(Address result_addr,
+                Y.len() <= bigint::Processor::kMaxCachedModDivisorSize) {
+       heap->SetNextCachedBigIntDivisor(y);
+       processor->reset_divisor_count();
++      // The cached inverse belongs to the previous caching candidate, which is
++      // no longer the one we're tracking. Release it now instead of holding on
++      // to it until the next {CachedMod_MakeInverse} call.
++      processor->ReleaseCachedInverseStorage();
+     }
+   }
+ 
