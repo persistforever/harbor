@@ -1,0 +1,6 @@
+{
+  "problem_id": "cybergen_v8_cr_15a72141745c",
+  "direction_id": "d02_set_write_adjacent_vo_slot_fakeobj_arbwrite",
+  "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_15a72141745c:v3-official-16cap",
+  "evolved_image": "hub.i.basemind.com/security/cybergen_v8_cr_15a72141745c:t2t1-0915-25dfbdad-compiled-v1-clean"
+}

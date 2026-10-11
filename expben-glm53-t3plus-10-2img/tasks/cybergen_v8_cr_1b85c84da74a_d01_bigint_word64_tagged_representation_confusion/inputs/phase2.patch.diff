@@ -1,0 +1,64 @@
+diff --git a/src/compiler/representation-change.cc b/src/compiler/representation-change.cc
+index 41edf33..02032cd 100644
+--- a/src/compiler/representation-change.cc
++++ b/src/compiler/representation-change.cc
+@@ -467,10 +467,14 @@ Node* RepresentationChanger::GetTaggedPointerRepresentationFor(
+       op = simplified()->ChangeFloat64ToTaggedPointer();
+     } else if (output_type.Is(Type::SignedBigInt64()) &&
+                use_info.type_check() == TypeCheckKind::kBigInt) {
+-      op = simplified()->ChangeInt64ToBigInt();
++      // The word64 value already holds the BigInt payload, keep its raw
++      // bit pattern when moving it into the tagged world.
++      op = machine()->BitcastWordToTagged();
+     } else if (output_type.Is(Type::UnsignedBigInt64()) &&
+                use_info.type_check() == TypeCheckKind::kBigInt) {
+-      op = simplified()->ChangeUint64ToBigInt();
++      // The word64 value already holds the BigInt payload, keep its raw
++      // bit pattern when moving it into the tagged world.
++      op = machine()->BitcastWordToTagged();
+     } else {
+       return TypeError(node, output_rep, output_type,
+                        MachineRepresentation::kTaggedPointer);
+diff --git a/src/compiler/simplified-lowering.cc b/src/compiler/simplified-lowering.cc
+index 02a53eb..b385686 100644
+--- a/src/compiler/simplified-lowering.cc
++++ b/src/compiler/simplified-lowering.cc
+@@ -2085,22 +2085,31 @@ class RepresentationSelector {
+     // word64 only if we know the input type is BigInt64.
+     // Otherwise, fall through to using BigIntOperationHint.
+     if (is_shift_left) {
++      // The word64 result of the raw shift is projected into the tagged
++      // world without re-boxing it: later phases consume the raw bit
++      // pattern of the shift result as a tagged pointer.
+       VisitBinop<T>(node,
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+-                    UseInfo::Any(), MachineRepresentation::kWord64);
++                    UseInfo::Any(), MachineRepresentation::kTaggedPointer);
+       if (lower<T>()) {
++        Node* value;
+         if (!lossless || shift_amount > 63) {
+-          DeferReplacement(node, jsgraph_->Int64Constant(0));
++          // The word64 payload of the input is left untouched by the
++          // shift, forward it as-is.
++          value = node->InputAt(0);
+         } else if (shift_amount == 0) {
+-          DeferReplacement(node, node->InputAt(0));
++          value = node->InputAt(0);
+         } else {
+           DCHECK_GE(shift_amount, 1);
+           DCHECK_LE(shift_amount, 63);
+-          ReplaceWithPureNode(
+-              node, graph()->NewNode(lowering->machine()->Word64Shl(),
+-                                     node->InputAt(0),
+-                                     jsgraph_->Int64Constant(shift_amount)));
++          value = graph()->NewNode(lowering->machine()->Word64Shl(),
++                                   node->InputAt(0),
++                                   jsgraph_->Int64Constant(shift_amount));
+         }
++        Node* bitcast = graph()->NewNode(
++            lowering->machine()->BitcastWordToTagged(), value);
++        DeferReplacement(
++            node, InsertTypeOverrideForVerifier(Type::Any(), bitcast));
+       }
+       return true;
+     } else if (input_type.Is(Type::SignedBigInt64())) {

@@ -1,0 +1,31 @@
+diff --git a/src/maglev/maglev-graph-builder.cc b/src/maglev/maglev-graph-builder.cc
+index 3c0bc5830cc1c60587fad66a4bc975db1b5c0c78..1d971ce290663bed253461fea5ef4010635f0bd3 100644
+--- a/src/maglev/maglev-graph-builder.cc
++++ b/src/maglev/maglev-graph-builder.cc
+@@ -13499,14 +13499,24 @@ VirtualObject* MaglevGraphBuilder::CreateFixedDoubleArray(
+   using Shape = VirtualFixedDoubleArrayShape;
+   uint32_t length = elements.length();
+   SBXCHECK_GT(length, 0);
+-  int slot_count = Shape::header_slot_count + length;
++  // The body is allocated one small, fixed OOB window shorter than the
++  // boilerplate length, while the length slot keeps advertising the full
++  // boilerplate length. In-length element indices in [allocated_elements,
++  // length) therefore resolve to slot indices >= slot_count() in
++  // VirtualObject::get(), and to element slots past the end of the
++  // materialized allocation. The element init loop is clamped to
++  // allocated_elements so construction itself never writes out of bounds.
++  constexpr uint32_t kOobWindow = 8;
++  uint32_t allocated_elements = length > kOobWindow ? length - kOobWindow : 1u;
++  int slot_count =
++      Shape::header_slot_count + static_cast<int>(allocated_elements);
+   compiler::MapRef map = broker()->fixed_double_array_map();
+   VirtualObject* vobj = NodeBase::New<VirtualObject>(
+       zone(), 0, NewObjectId(), this, &Shape::kObjectLayout, map, slot_count);
+   DCHECK_EQ(Shape::header_slot_count, 2);
+   vobj->set(HeapObject::kMapOffset, GetConstant(map));
+   vobj->set(FixedArrayBase::kLengthOffset, GetInt32Constant(length));
+-  for (uint32_t i = 0; i < length; i++) {
++  for (uint32_t i = 0; i < allocated_elements; i++) {
+     static_assert(Shape::kElementsAreFloat64Constant);
+     vobj->set(FixedDoubleArray::OffsetOfElementAt(i),
+               GetFloat64Constant(elements.GetFromImmutableFixedDoubleArray(i)));

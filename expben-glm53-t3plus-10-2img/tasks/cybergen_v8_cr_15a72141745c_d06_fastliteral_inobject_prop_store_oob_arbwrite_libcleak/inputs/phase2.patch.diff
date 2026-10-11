@@ -1,0 +1,78 @@
+diff --git a/src/maglev/maglev-graph-builder.cc b/src/maglev/maglev-graph-builder.cc
+index 3c0bc5830cc1c60587fad66a4bc975db1b5c0c78..6ca486673c97f06752ef3541e3589b6a45845310 100644
+--- a/src/maglev/maglev-graph-builder.cc
++++ b/src/maglev/maglev-graph-builder.cc
+@@ -13268,6 +13268,12 @@ ReduceResult MaglevGraphBuilder::VisitCreateEmptyArrayLiteral() {
+   return ReduceResult::Done();
+ }
+ 
++namespace {
++// Number of trailing in-object property slots dropped from the virtual object
++// created for a fast literal. See TryReadBoilerplateForFastLiteral.
++constexpr int kFastLiteralSlotTrim = 1;
++}  // namespace
++
+ std::optional<VirtualObject*>
+ MaglevGraphBuilder::TryReadBoilerplateForFastLiteral(
+     compiler::JSObjectRef boilerplate, AllocationType allocation, int max_depth,
+@@ -13341,7 +13347,10 @@ MaglevGraphBuilder::TryReadBoilerplateForFastLiteral(
+     CHECK(fast_array.HasValue());
+     fast_literal = fast_array.value()->Cast<VirtualObject>();
+   } else {
+-    fast_literal = CreateJSObject(boilerplate_map);
++    // The boilerplate's trailing in-object slot is always overwritten by the
++    // property stores below, so the fast literal can allocate one in-object
++    // slot less than the map's instance size.
++    fast_literal = CreateJSObject(boilerplate_map, kFastLiteralSlotTrim);
+   }
+ 
+   int inobject_properties = boilerplate_map.GetInObjectProperties();
+@@ -13407,8 +13416,12 @@ MaglevGraphBuilder::TryReadBoilerplateForFastLiteral(
+     index++;
+   }
+ 
+-  // Fill slack at the end of the boilerplate object with filler maps.
+-  for (; index < inobject_properties; ++index) {
++  // Fill slack at the end of the boilerplate object with filler maps. Only the
++  // in-object property slots that are actually backed by fast_literal are
++  // filled; trailing slots may have been trimmed off its slot count.
++  int inobject_slot_capacity =
++      fast_literal->slot_count() - fast_literal->header_slot_count();
++  for (; index < inobject_slot_capacity; ++index) {
+     DCHECK(!V8_MAP_PACKING_BOOL);
+     // TODO(wenyuzhao): Fix incorrect MachineType when V8_MAP_PACKING is
+     // enabled.
+@@ -13533,11 +13546,18 @@ VirtualObject* MaglevGraphBuilder::CreateConsString(ValueNode* map,
+   return vobj;
+ }
+ 
+-VirtualObject* MaglevGraphBuilder::CreateJSObject(compiler::MapRef map) {
++VirtualObject* MaglevGraphBuilder::CreateJSObject(compiler::MapRef map,
++                                                  int inobject_slot_trim) {
+   using Shape = VirtualJSObjectShape;
+   DCHECK(!map.is_dictionary_map());
+   DCHECK(!map.IsInobjectSlackTrackingInProgress());
+   int slot_count = map.instance_size() / kTaggedSize;
++  // Drop trailing in-object property slots while keeping the map,
++  // properties and elements header slots intact.
++  if (inobject_slot_trim > 0 &&
++      slot_count - inobject_slot_trim >= Shape::header_slot_count) {
++    slot_count -= inobject_slot_trim;
++  }
+   SBXCHECK_GE(slot_count, 3);
+   VirtualObject* vobj = NodeBase::New<VirtualObject>(
+       zone(), 0, NewObjectId(), this, &Shape::kObjectLayout, map, slot_count);
+diff --git a/src/maglev/maglev-graph-builder.h b/src/maglev/maglev-graph-builder.h
+index 26888249559845a7922ad0b2c5c3c4ba24baac3b..a4d683eee5a4ca4a1b3b6de9c97e848e5e2bcbd9 100644
+--- a/src/maglev/maglev-graph-builder.h
++++ b/src/maglev/maglev-graph-builder.h
+@@ -1490,7 +1490,8 @@ class MaglevGraphBuilder {
+   VirtualObject* CreateHeapNumber(ValueNode* value);
+   VirtualObject* CreateFixedDoubleArray(
+       const compiler::FixedDoubleArrayRef& elements);
+-  VirtualObject* CreateJSObject(compiler::MapRef map);
++  VirtualObject* CreateJSObject(compiler::MapRef map,
++                                int inobject_slot_trim = 0);
+   VirtualObject* CreateConsString(ValueNode* map, ValueNode* length,
+                                   ValueNode* first, ValueNode* second);
+   ReduceResult CreateJSArray(compiler::MapRef map, int instance_size,

@@ -1,0 +1,120 @@
+--- a/src/compiler/representation-change.cc
++++ b/src/compiler/representation-change.cc
+@@ -467,14 +467,10 @@
+       op = simplified()->ChangeFloat64ToTaggedPointer();
+     } else if (output_type.Is(Type::SignedBigInt64()) &&
+                use_info.type_check() == TypeCheckKind::kBigInt) {
+-      // The word64 value already holds the BigInt payload, keep its raw
+-      // bit pattern when moving it into the tagged world.
+-      op = machine()->BitcastWordToTagged();
++      op = simplified()->ChangeInt64ToBigInt();
+     } else if (output_type.Is(Type::UnsignedBigInt64()) &&
+                use_info.type_check() == TypeCheckKind::kBigInt) {
+-      // The word64 value already holds the BigInt payload, keep its raw
+-      // bit pattern when moving it into the tagged world.
+-      op = machine()->BitcastWordToTagged();
++      op = simplified()->ChangeUint64ToBigInt();
+     } else {
+       return TypeError(node, output_rep, output_type,
+                        MachineRepresentation::kTaggedPointer);
+--- a/src/compiler/simplified-lowering.cc
++++ b/src/compiler/simplified-lowering.cc
+@@ -2066,6 +2066,8 @@
+     BigIntRef bigint = ref.AsBigInt();
+     bool lossless = false;
+     int64_t shift_amount = bigint.AsInt64(&lossless);
++    // We bail out if we cannot represent the shift amount correctly.
++    if (!lossless) return false;
+ 
+     // Canonicalize {shift_amount}.
+     bool is_shift_left =
+@@ -2076,7 +2078,7 @@
+       if (shift_amount == std::numeric_limits<int64_t>::min()) return false;
+       is_shift_left = !is_shift_left;
+       shift_amount = -shift_amount;
+-      DCHECK(shift_amount > 0);
++      DCHECK_GT(shift_amount, 0);
+     }
+     DCHECK_GE(shift_amount, 0);
+ 
+@@ -2085,31 +2087,22 @@
+     // word64 only if we know the input type is BigInt64.
+     // Otherwise, fall through to using BigIntOperationHint.
+     if (is_shift_left) {
+-      // The word64 result of the raw shift is projected into the tagged
+-      // world without re-boxing it: later phases consume the raw bit
+-      // pattern of the shift result as a tagged pointer.
+       VisitBinop<T>(node,
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+-                    UseInfo::Any(), MachineRepresentation::kTaggedPointer);
++                    UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        Node* value;
+-        if (!lossless || shift_amount > 63) {
+-          // The word64 payload of the input is left untouched by the
+-          // shift, forward it as-is.
+-          value = node->InputAt(0);
++        if (shift_amount > 63) {
++          DeferReplacement(node, jsgraph_->Int64Constant(0));
+         } else if (shift_amount == 0) {
+-          value = node->InputAt(0);
++          DeferReplacement(node, node->InputAt(0));
+         } else {
+           DCHECK_GE(shift_amount, 1);
+           DCHECK_LE(shift_amount, 63);
+-          value = graph()->NewNode(lowering->machine()->Word64Shl(),
+-                                   node->InputAt(0),
+-                                   jsgraph_->Int64Constant(shift_amount));
+-        }
+-        Node* bitcast = graph()->NewNode(
+-            lowering->machine()->BitcastWordToTagged(), value);
+-        DeferReplacement(
+-            node, InsertTypeOverrideForVerifier(Type::Any(), bitcast));
++          ReplaceWithPureNode(
++              node, graph()->NewNode(lowering->machine()->Word64Shl(),
++                                     node->InputAt(0),
++                                     jsgraph_->Int64Constant(shift_amount)));
++        }
+       }
+       return true;
+     } else if (input_type.Is(Type::SignedBigInt64())) {
+@@ -2117,7 +2110,7 @@
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+                     UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           ReplaceWithPureNode(
+               node,
+               graph()->NewNode(lowering->machine()->Word64Sar(),
+@@ -2139,7 +2132,7 @@
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+                     UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+         } else if (shift_amount == 0) {
+           DeferReplacement(node, node->InputAt(0));
+--- a/test/mjsunit/regress/regress-345960102.js
++++ b/test/mjsunit/regress/regress-345960102.js
+@@ -0,0 +1,19 @@
++// Copyright 2024 the V8 project authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Flags: --allow-natives-syntax
++
++y = BigInt("0xffffffffffffffff");
++
++function test() {
++    let x = BigInt.asIntN(64, -1n);
++    let result = x >> (y);
++    return BigInt.asIntN(64, result);
++}
++
++%PrepareFunctionForOptimization(test);
++assertEquals(-1n, test());
++assertEquals(-1n, test());
++%OptimizeFunctionOnNextCall(test)
++assertEquals(-1n, test());

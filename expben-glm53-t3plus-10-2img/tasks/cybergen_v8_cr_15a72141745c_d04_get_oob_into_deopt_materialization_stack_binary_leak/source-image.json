@@ -1,0 +1,6 @@
+{
+  "problem_id": "cybergen_v8_cr_15a72141745c",
+  "direction_id": "d04_get_oob_into_deopt_materialization_stack_binary_leak",
+  "source_image": "hub.i.basemind.com/security/cybergen_v8_cr_15a72141745c:v3-official-16cap",
+  "evolved_image": "hub.i.basemind.com/security/cybergen_v8_cr_15a72141745c:t2t1-0915-a1252d81-compiled-v1-clean"
+}

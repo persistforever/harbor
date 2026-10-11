@@ -1,0 +1,76 @@
+diff --git a/src/compiler/simplified-lowering.cc b/src/compiler/simplified-lowering.cc
+index 02a53ebcc21705d1fd3c3bc70ed458d960bf7949..02ea4408ddbffdc93496e751fc39bdbbfce7e4c3 100644
+--- a/src/compiler/simplified-lowering.cc
++++ b/src/compiler/simplified-lowering.cc
+@@ -2055,7 +2055,6 @@
+   bool TryOptimizeBigInt64Shift(Node* node, const Truncation& truncation,
+                                 SimplifiedLowering* lowering) {
+     DCHECK(Is64());
+-    if (!truncation.IsUsedAsWord64()) return false;
+ 
+     Type input_type = GetUpperBound(node->InputAt(0));
+     Type shift_amount_type = GetUpperBound(node->InputAt(1));
+@@ -2067,6 +2066,13 @@
+     bool lossless = false;
+     int64_t shift_amount = bigint.AsInt64(&lossless);
+ 
++    // If the shift amount is not precisely representable, the shifted value
++    // is defined by its truncation to 64 bits anyway, so the raw machine
++    // shift can serve every use: uses that truncate to word64 observe the
++    // word64 directly, and the RepresentationChanger materializes the BigInt
++    // from the word64 for the remaining uses.
++    if (lossless && !truncation.IsUsedAsWord64()) return false;
++
+     // Canonicalize {shift_amount}.
+     bool is_shift_left =
+         node->opcode() == IrOpcode::kSpeculativeBigIntShiftLeft;
+@@ -2080,6 +2086,13 @@
+     }
+     DCHECK_GE(shift_amount, 0);
+ 
++    // The machine shift below computes a raw word64. Word64-truncating uses
++    // observe that value directly, every other use sees the BigInt result of
++    // this node, so record the representation that the uses expect.
++    MachineRepresentation output =
++        truncation.IsUsedAsWord64() ? MachineRepresentation::kWord64
++                                    : MachineRepresentation::kTagged;
++
+     // If the operation is a *real* left shift, propagate truncation.
+     // If it is a *real* right shift, the output representation is
+     // word64 only if we know the input type is BigInt64.
+@@ -2087,9 +2100,9 @@
+     if (is_shift_left) {
+       VisitBinop<T>(node,
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+-                    UseInfo::Any(), MachineRepresentation::kWord64);
++                    UseInfo::Any(), output);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+         } else if (shift_amount == 0) {
+           DeferReplacement(node, node->InputAt(0));
+@@ -2106,9 +2119,9 @@
+     } else if (input_type.Is(Type::SignedBigInt64())) {
+       VisitBinop<T>(node,
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+-                    UseInfo::Any(), MachineRepresentation::kWord64);
++                    UseInfo::Any(), output);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           ReplaceWithPureNode(
+               node,
+               graph()->NewNode(lowering->machine()->Word64Sar(),
+@@ -2128,9 +2141,9 @@
+     } else if (input_type.Is(Type::UnsignedBigInt64())) {
+       VisitBinop<T>(node,
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+-                    UseInfo::Any(), MachineRepresentation::kWord64);
++                    UseInfo::Any(), output);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+         } else if (shift_amount == 0) {
+           DeferReplacement(node, node->InputAt(0));

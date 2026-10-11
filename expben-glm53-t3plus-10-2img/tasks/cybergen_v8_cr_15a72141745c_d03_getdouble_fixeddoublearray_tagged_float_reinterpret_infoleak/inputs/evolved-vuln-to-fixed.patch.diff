@@ -1,0 +1,54 @@
+--- a/src/maglev/maglev-graph-builder.cc
++++ b/src/maglev/maglev-graph-builder.cc
+@@ -13499,24 +13499,14 @@
+   using Shape = VirtualFixedDoubleArrayShape;
+   uint32_t length = elements.length();
+   SBXCHECK_GT(length, 0);
+-  // The body is allocated one small, fixed OOB window shorter than the
+-  // boilerplate length, while the length slot keeps advertising the full
+-  // boilerplate length. In-length element indices in [allocated_elements,
+-  // length) therefore resolve to slot indices >= slot_count() in
+-  // VirtualObject::get(), and to element slots past the end of the
+-  // materialized allocation. The element init loop is clamped to
+-  // allocated_elements so construction itself never writes out of bounds.
+-  constexpr uint32_t kOobWindow = 8;
+-  uint32_t allocated_elements = length > kOobWindow ? length - kOobWindow : 1u;
+-  int slot_count =
+-      Shape::header_slot_count + static_cast<int>(allocated_elements);
++  int slot_count = Shape::header_slot_count + length;
+   compiler::MapRef map = broker()->fixed_double_array_map();
+   VirtualObject* vobj = NodeBase::New<VirtualObject>(
+       zone(), 0, NewObjectId(), this, &Shape::kObjectLayout, map, slot_count);
+   DCHECK_EQ(Shape::header_slot_count, 2);
+   vobj->set(HeapObject::kMapOffset, GetConstant(map));
+   vobj->set(FixedArrayBase::kLengthOffset, GetInt32Constant(length));
+-  for (uint32_t i = 0; i < allocated_elements; i++) {
++  for (uint32_t i = 0; i < length; i++) {
+     static_assert(Shape::kElementsAreFloat64Constant);
+     vobj->set(FixedDoubleArray::OffsetOfElementAt(i),
+               GetFloat64Constant(elements.GetFromImmutableFixedDoubleArray(i)));
+--- a/src/maglev/maglev-ir.h
++++ b/src/maglev/maglev-ir.h
+@@ -6327,7 +6327,9 @@
+   }
+ 
+   ValueNode* get(uint32_t offset) const {
+-    return slots_[object_layout_->SlotAtOffset(offset)];
++    uint32_t slot_index = object_layout_->SlotAtOffset(offset);
++    SBXCHECK_LT(slot_index, slot_count());
++    return slots_[slot_index];
+   }
+ 
+   void set(uint32_t offset, ValueNode* value) {
+@@ -6526,6 +6528,11 @@
+     // Values set here can leak to the interpreter. Conversions should be stored
+     // in known_node_aspects/NodeInfo.
+     DCHECK(!value->properties().is_conversion());
++    // TODO(jgruber): Indices are commonly passed in from places that read
++    // potentially attacker-corrupted heap objects. Either we catch all such
++    // usages with CHECKs, or we add one here. Honestly I like neither option
++    // that much, but doing so in this chokepoint is safer.
++    SBXCHECK_LT(i, slot_count());
+     slots_[i] = value;
+   }
+ 

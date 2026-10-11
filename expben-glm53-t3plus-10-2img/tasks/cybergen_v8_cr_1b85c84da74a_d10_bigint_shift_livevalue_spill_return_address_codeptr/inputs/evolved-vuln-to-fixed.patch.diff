@@ -1,0 +1,93 @@
+--- a/src/compiler/simplified-lowering.cc
++++ b/src/compiler/simplified-lowering.cc
+@@ -2055,6 +2055,7 @@
+   bool TryOptimizeBigInt64Shift(Node* node, const Truncation& truncation,
+                                 SimplifiedLowering* lowering) {
+     DCHECK(Is64());
++    if (!truncation.IsUsedAsWord64()) return false;
+ 
+     Type input_type = GetUpperBound(node->InputAt(0));
+     Type shift_amount_type = GetUpperBound(node->InputAt(1));
+@@ -2065,13 +2066,8 @@
+     BigIntRef bigint = ref.AsBigInt();
+     bool lossless = false;
+     int64_t shift_amount = bigint.AsInt64(&lossless);
+-
+-    // If the shift amount is not precisely representable, the shifted value
+-    // is defined by its truncation to 64 bits anyway, so the raw machine
+-    // shift can serve every use: uses that truncate to word64 observe the
+-    // word64 directly, and the RepresentationChanger materializes the BigInt
+-    // from the word64 for the remaining uses.
+-    if (lossless && !truncation.IsUsedAsWord64()) return false;
++    // We bail out if we cannot represent the shift amount correctly.
++    if (!lossless) return false;
+ 
+     // Canonicalize {shift_amount}.
+     bool is_shift_left =
+@@ -2082,16 +2078,9 @@
+       if (shift_amount == std::numeric_limits<int64_t>::min()) return false;
+       is_shift_left = !is_shift_left;
+       shift_amount = -shift_amount;
+-      DCHECK(shift_amount > 0);
++      DCHECK_GT(shift_amount, 0);
+     }
+     DCHECK_GE(shift_amount, 0);
+-
+-    // The machine shift below computes a raw word64. Word64-truncating uses
+-    // observe that value directly, every other use sees the BigInt result of
+-    // this node, so record the representation that the uses expect.
+-    MachineRepresentation output =
+-        truncation.IsUsedAsWord64() ? MachineRepresentation::kWord64
+-                                    : MachineRepresentation::kTagged;
+ 
+     // If the operation is a *real* left shift, propagate truncation.
+     // If it is a *real* right shift, the output representation is
+@@ -2100,7 +2089,7 @@
+     if (is_shift_left) {
+       VisitBinop<T>(node,
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+-                    UseInfo::Any(), output);
++                    UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+         if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+@@ -2119,7 +2108,7 @@
+     } else if (input_type.Is(Type::SignedBigInt64())) {
+       VisitBinop<T>(node,
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+-                    UseInfo::Any(), output);
++                    UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+         if (shift_amount > 63) {
+           ReplaceWithPureNode(
+@@ -2141,7 +2130,7 @@
+     } else if (input_type.Is(Type::UnsignedBigInt64())) {
+       VisitBinop<T>(node,
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+-                    UseInfo::Any(), output);
++                    UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+         if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+--- a/test/mjsunit/regress/regress-345960102.js
++++ b/test/mjsunit/regress/regress-345960102.js
+@@ -0,0 +1,19 @@
++// Copyright 2024 the V8 project authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Flags: --allow-natives-syntax
++
++y = BigInt("0xffffffffffffffff");
++
++function test() {
++    let x = BigInt.asIntN(64, -1n);
++    let result = x >> (y);
++    return BigInt.asIntN(64, result);
++}
++
++%PrepareFunctionForOptimization(test);
++assertEquals(-1n, test());
++assertEquals(-1n, test());
++%OptimizeFunctionOnNextCall(test)
++assertEquals(-1n, test());

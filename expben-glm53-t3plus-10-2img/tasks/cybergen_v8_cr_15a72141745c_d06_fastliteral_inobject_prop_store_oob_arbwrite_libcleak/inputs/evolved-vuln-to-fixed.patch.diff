@@ -1,0 +1,99 @@
+--- a/src/maglev/maglev-graph-builder.cc
++++ b/src/maglev/maglev-graph-builder.cc
+@@ -13268,12 +13268,6 @@
+   return ReduceResult::Done();
+ }
+ 
+-namespace {
+-// Number of trailing in-object property slots dropped from the virtual object
+-// created for a fast literal. See TryReadBoilerplateForFastLiteral.
+-constexpr int kFastLiteralSlotTrim = 1;
+-}  // namespace
+-
+ std::optional<VirtualObject*>
+ MaglevGraphBuilder::TryReadBoilerplateForFastLiteral(
+     compiler::JSObjectRef boilerplate, AllocationType allocation, int max_depth,
+@@ -13347,10 +13341,7 @@
+     CHECK(fast_array.HasValue());
+     fast_literal = fast_array.value()->Cast<VirtualObject>();
+   } else {
+-    // The boilerplate's trailing in-object slot is always overwritten by the
+-    // property stores below, so the fast literal can allocate one in-object
+-    // slot less than the map's instance size.
+-    fast_literal = CreateJSObject(boilerplate_map, kFastLiteralSlotTrim);
++    fast_literal = CreateJSObject(boilerplate_map);
+   }
+ 
+   int inobject_properties = boilerplate_map.GetInObjectProperties();
+@@ -13416,12 +13407,8 @@
+     index++;
+   }
+ 
+-  // Fill slack at the end of the boilerplate object with filler maps. Only the
+-  // in-object property slots that are actually backed by fast_literal are
+-  // filled; trailing slots may have been trimmed off its slot count.
+-  int inobject_slot_capacity =
+-      fast_literal->slot_count() - fast_literal->header_slot_count();
+-  for (; index < inobject_slot_capacity; ++index) {
++  // Fill slack at the end of the boilerplate object with filler maps.
++  for (; index < inobject_properties; ++index) {
+     DCHECK(!V8_MAP_PACKING_BOOL);
+     // TODO(wenyuzhao): Fix incorrect MachineType when V8_MAP_PACKING is
+     // enabled.
+@@ -13546,18 +13533,11 @@
+   return vobj;
+ }
+ 
+-VirtualObject* MaglevGraphBuilder::CreateJSObject(compiler::MapRef map,
+-                                                  int inobject_slot_trim) {
++VirtualObject* MaglevGraphBuilder::CreateJSObject(compiler::MapRef map) {
+   using Shape = VirtualJSObjectShape;
+   DCHECK(!map.is_dictionary_map());
+   DCHECK(!map.IsInobjectSlackTrackingInProgress());
+   int slot_count = map.instance_size() / kTaggedSize;
+-  // Drop trailing in-object property slots while keeping the map,
+-  // properties and elements header slots intact.
+-  if (inobject_slot_trim > 0 &&
+-      slot_count - inobject_slot_trim >= Shape::header_slot_count) {
+-    slot_count -= inobject_slot_trim;
+-  }
+   SBXCHECK_GE(slot_count, 3);
+   VirtualObject* vobj = NodeBase::New<VirtualObject>(
+       zone(), 0, NewObjectId(), this, &Shape::kObjectLayout, map, slot_count);
+--- a/src/maglev/maglev-graph-builder.h
++++ b/src/maglev/maglev-graph-builder.h
+@@ -1490,8 +1490,7 @@
+   VirtualObject* CreateHeapNumber(ValueNode* value);
+   VirtualObject* CreateFixedDoubleArray(
+       const compiler::FixedDoubleArrayRef& elements);
+-  VirtualObject* CreateJSObject(compiler::MapRef map,
+-                                int inobject_slot_trim = 0);
++  VirtualObject* CreateJSObject(compiler::MapRef map);
+   VirtualObject* CreateConsString(ValueNode* map, ValueNode* length,
+                                   ValueNode* first, ValueNode* second);
+   ReduceResult CreateJSArray(compiler::MapRef map, int instance_size,
+--- a/src/maglev/maglev-ir.h
++++ b/src/maglev/maglev-ir.h
+@@ -6327,7 +6327,9 @@
+   }
+ 
+   ValueNode* get(uint32_t offset) const {
+-    return slots_[object_layout_->SlotAtOffset(offset)];
++    uint32_t slot_index = object_layout_->SlotAtOffset(offset);
++    SBXCHECK_LT(slot_index, slot_count());
++    return slots_[slot_index];
+   }
+ 
+   void set(uint32_t offset, ValueNode* value) {
+@@ -6526,6 +6528,11 @@
+     // Values set here can leak to the interpreter. Conversions should be stored
+     // in known_node_aspects/NodeInfo.
+     DCHECK(!value->properties().is_conversion());
++    // TODO(jgruber): Indices are commonly passed in from places that read
++    // potentially attacker-corrupted heap objects. Either we catch all such
++    // usages with CHECKs, or we add one here. Honestly I like neither option
++    // that much, but doing so in this chokepoint is safer.
++    SBXCHECK_LT(i, slot_count());
+     slots_[i] = value;
+   }
+ 

@@ -1,0 +1,210 @@
+--- a/src/compiler/simplified-lowering.cc
++++ b/src/compiler/simplified-lowering.cc
+@@ -2066,6 +2066,8 @@
+     BigIntRef bigint = ref.AsBigInt();
+     bool lossless = false;
+     int64_t shift_amount = bigint.AsInt64(&lossless);
++    // We bail out if we cannot represent the shift amount correctly.
++    if (!lossless) return false;
+ 
+     // Canonicalize {shift_amount}.
+     bool is_shift_left =
+@@ -2076,7 +2078,7 @@
+       if (shift_amount == std::numeric_limits<int64_t>::min()) return false;
+       is_shift_left = !is_shift_left;
+       shift_amount = -shift_amount;
+-      DCHECK(shift_amount > 0);
++      DCHECK_GT(shift_amount, 0);
+     }
+     DCHECK_GE(shift_amount, 0);
+ 
+@@ -2089,7 +2091,7 @@
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+                     UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+         } else if (shift_amount == 0) {
+           DeferReplacement(node, node->InputAt(0));
+@@ -2108,7 +2110,7 @@
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+                     UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           ReplaceWithPureNode(
+               node,
+               graph()->NewNode(lowering->machine()->Word64Sar(),
+@@ -2130,7 +2132,7 @@
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+                     UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+         } else if (shift_amount == 0) {
+           DeferReplacement(node, node->InputAt(0));
+@@ -2179,14 +2181,7 @@
+       case wasm::kI32:
+         return UseInfo::CheckedNumberOrOddballAsWord32(feedback);
+       case wasm::kI64:
+-        // Evolved (d09): The raw word64 bits of the argument are forwarded
+-        // to Wasm without a checked BigInt truncation at the JS->Wasm
+-        // boundary, so the word64-represented BigInt produced by
+-        // TryOptimizeBigInt64Shift (which is missing the {lossless}
+-        // bail-out) reaches the Wasm side unchanged. Its fully
+-        // attacker-controlled bits can then act as the call_indirect table
+-        // index.
+-        return UseInfo::TruncatingWord64();
++        return UseInfo::CheckedBigIntTruncatingWord64(feedback);
+       case wasm::kF32:
+       case wasm::kF64:
+         // For Float32, TruncateFloat64ToFloat32 will be inserted later in
+--- a/src/compiler/wasm-compiler.cc
++++ b/src/compiler/wasm-compiler.cc
+@@ -2956,14 +2956,28 @@
+             ProtectedFixedArray::OffsetOfElementAt(table_index)));
+   }
+ 
+-  // Evolved (d09): The table bounds check is not emitted. The caller's index
+-  // operand - which can be the fully attacker-controlled i64 forwarded
+-  // through the unchecked JS->Wasm i64 argument boundary
+-  // (UseInfoForJSWasmCallArgument) - directly selects the WasmDispatchTable
+-  // entry that is called, including entries past the table end.
++  // Bounds check the index.
+   Node* index = args[0];
+   const wasm::WasmTable& table = env_->module->tables[table_index];
+   TableTypeToUintPtrOrOOBTrap(table.is_table64, {&index}, position);
++  const bool needs_dynamic_size =
++      !table.has_maximum_size || table.maximum_size != table.initial_size;
++  Node* table_size =
++      needs_dynamic_size
++          ? gasm_->LoadFromObject(
++                MachineType::Int32(), dispatch_table,
++                wasm::ObjectAccess::ToTagged(WasmDispatchTable::kLengthOffset))
++          : Int32Constant(table.initial_size);
++  Node* in_bounds = Is64() ? gasm_->Uint64LessThan(
++                                 index, gasm_->ChangeUint32ToUint64(table_size))
++                           : gasm_->Uint32LessThan(index, table_size);
++  TrapIfFalse(wasm::kTrapTableOutOfBounds, in_bounds, position);
++
++  wasm::ValueType table_type = env_->module->tables[table_index].type;
++  bool needs_type_check = !wasm::EquivalentTypes(
++      table_type.AsNonNull(), wasm::ValueType::Ref(sig_index), env_->module,
++      env_->module);
++  bool needs_null_check = table_type.is_nullable();
+ 
+   Node* dispatch_table_entry_offset = gasm_->IntAdd(
+       gasm_->IntPtrConstant(
+@@ -2971,10 +2985,84 @@
+       gasm_->IntMul(index,
+                     gasm_->IntPtrConstant(WasmDispatchTable::kEntrySize)));
+ 
+-  // Evolved (d09): The sig-id comparison against the selected table entry
+-  // (and the null-entry sentinel check) is skipped as well, so the entry
+-  // selected by the attacker-controlled index is treated as a
+-  // signature-matching, callable target whose raw code pointer is invoked.
++  // Skip check if table type matches declared signature.
++  if (needs_type_check) {
++    Node* isorecursive_canonical_types =
++        LOAD_INSTANCE_FIELD(IsorecursiveCanonicalTypes, MachineType::Pointer());
++    Node* expected_sig_id = gasm_->LoadImmutable(
++        MachineType::Uint32(), isorecursive_canonical_types,
++        gasm_->IntPtrConstant(sig_index * kInt32Size));
++
++    Node* loaded_sig = gasm_->LoadFromObject(
++        MachineType::Int32(), dispatch_table,
++        gasm_->IntAdd(dispatch_table_entry_offset,
++                      gasm_->IntPtrConstant(WasmDispatchTable::kSigBias)));
++    Node* sig_match = gasm_->Word32Equal(loaded_sig, expected_sig_id);
++
++    if (!env_->module->types[sig_index].is_final) {
++      // Do a full subtyping check.
++      auto end_label = gasm_->MakeLabel();
++      gasm_->GotoIf(sig_match, &end_label);
++
++      // Trap on null element.
++      if (needs_null_check) {
++        TrapIfTrue(wasm::kTrapFuncSigMismatch,
++                   gasm_->Word32Equal(loaded_sig, Int32Constant(-1)), position);
++      }
++
++      Node* formal_rtt = RttCanon(sig_index);
++      int rtt_depth = wasm::GetSubtypingDepth(env_->module, sig_index);
++      DCHECK_GE(rtt_depth, 0);
++
++      // Since we have the canonical index of the real rtt, we have to load it
++      // from the isolate rtt-array (which is canonically indexed). Since this
++      // reference is weak, we have to promote it to a strong reference.
++      // Note: The reference cannot have been cleared: Since the loaded_sig
++      // corresponds to a function of the same canonical type, that function
++      // will have kept the type alive.
++      Node* rtts = LOAD_MUTABLE_ROOT(WasmCanonicalRtts, wasm_canonical_rtts);
++      Node* real_rtt =
++          gasm_->WordAnd(gasm_->LoadWeakArrayListElement(rtts, loaded_sig),
++                         gasm_->IntPtrConstant(~kWeakHeapObjectMask));
++      Node* type_info = gasm_->LoadWasmTypeInfo(real_rtt);
++
++      // If the depth of the rtt is known to be less than the minimum supertype
++      // array length, we can access the supertype without bounds-checking the
++      // supertype array.
++      if (static_cast<uint32_t>(rtt_depth) >=
++          wasm::kMinimumSupertypeArraySize) {
++        Node* supertypes_length =
++            gasm_->BuildChangeSmiToIntPtr(gasm_->LoadImmutableFromObject(
++                MachineType::TaggedSigned(), type_info,
++                wasm::ObjectAccess::ToTagged(
++                    WasmTypeInfo::kSupertypesLengthOffset)));
++        TrapIfFalse(wasm::kTrapFuncSigMismatch,
++                    gasm_->UintLessThan(gasm_->IntPtrConstant(rtt_depth),
++                                        supertypes_length),
++                    position);
++      }
++
++      Node* maybe_match = gasm_->LoadImmutableFromObject(
++          MachineType::TaggedPointer(), type_info,
++          wasm::ObjectAccess::ToTagged(WasmTypeInfo::kSupertypesOffset +
++                                       kTaggedSize * rtt_depth));
++      TrapIfFalse(wasm::kTrapFuncSigMismatch,
++                  gasm_->TaggedEqual(maybe_match, formal_rtt), position);
++      gasm_->Goto(&end_label);
++
++      gasm_->Bind(&end_label);
++    } else {
++      // In absence of subtyping, we just need to check for type equality.
++      TrapIfFalse(wasm::kTrapFuncSigMismatch, sig_match, position);
++    }
++  } else if (needs_null_check) {
++    Node* loaded_sig = gasm_->LoadFromObject(
++        MachineType::Int32(), dispatch_table,
++        gasm_->IntAdd(dispatch_table_entry_offset,
++                      gasm_->IntPtrConstant(WasmDispatchTable::kSigBias)));
++    TrapIfTrue(wasm::kTrapFuncSigMismatch,
++               gasm_->Word32Equal(loaded_sig, Int32Constant(-1)), position);
++  }
+ 
+   Node* target_ref = gasm_->LoadProtectedPointerFromObject(
+       dispatch_table,
+--- a/test/mjsunit/regress/regress-345960102.js
++++ b/test/mjsunit/regress/regress-345960102.js
+@@ -0,0 +1,19 @@
++// Copyright 2024 the V8 project authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Flags: --allow-natives-syntax
++
++y = BigInt("0xffffffffffffffff");
++
++function test() {
++    let x = BigInt.asIntN(64, -1n);
++    let result = x >> (y);
++    return BigInt.asIntN(64, result);
++}
++
++%PrepareFunctionForOptimization(test);
++assertEquals(-1n, test());
++assertEquals(-1n, test());
++%OptimizeFunctionOnNextCall(test)
++assertEquals(-1n, test());

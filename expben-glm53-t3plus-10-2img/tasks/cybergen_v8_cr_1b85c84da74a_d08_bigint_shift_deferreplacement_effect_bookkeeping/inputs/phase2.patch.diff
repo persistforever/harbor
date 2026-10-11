@@ -1,0 +1,24 @@
+diff --git a/src/compiler/simplified-lowering.cc b/src/compiler/simplified-lowering.cc
+--- a/src/compiler/simplified-lowering.cc
++++ b/src/compiler/simplified-lowering.cc
+@@ -2085,11 +2085,19 @@
+     // word64 only if we know the input type is BigInt64.
+     // Otherwise, fall through to using BigIntOperationHint.
+     if (is_shift_left) {
++      // Capture the still-tagged {value} input here; VisitBinop() below
++      // replaces input 0 with the truncating word64 conversion.
++      Node* value = node->InputAt(0);
+       VisitBinop<T>(node,
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+                     UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (!lossless) {
++          // The shift amount is not representable as int64, so it dominates
++          // every bit of {value} that a word64 consumer can observe. Fold
++          // the shift away by forwarding {value} to the consumers.
++          DeferReplacement(node, value);
++        } else if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+         } else if (shift_amount == 0) {
+           DeferReplacement(node, node->InputAt(0));

@@ -1,0 +1,21 @@
+{
+  "base_image": "hub.i.basemind.com/security/cybergen_v8_cr_15a72141745c:v3-official-16cap",
+  "base_patch": "base-vuln-to-fixed.patch.diff",
+  "build_jobs": 16,
+  "evolved_patch": "evolved-vuln-to-fixed.patch.diff",
+  "expected_roots": [
+    "/data/temporal/expben_v8_build/problems/cybergen_v8_cr_15a72141745c/build-inputs",
+    "/data/temporal/expben-v8-cr-15a72141745c-build-inputs",
+    "/data/temporal/cybergen_v8_cr_15a72141745c-build-inputs"
+  ],
+  "manifest": "/data/temporal/expben_v8_build/problems/cybergen_v8_cr_15a72141745c/build-inputs/manifest.json",
+  "manifest_sha256": "47c07de581fcea2017085665080c32e984e59f49dde324cbc04db0611f3b07fd",
+  "phase2_patch": "phase2.patch.diff",
+  "shared_build_inputs": "../../build-inputs/cybergen_v8_cr_15a72141745c/status.json",
+  "source_paths_in_patch": [
+    "src/maglev/maglev-graph-builder.cc",
+    "src/maglev/maglev-graph-builder.h",
+    "src/maglev/maglev-ir.h"
+  ],
+  "status": "available"
+}

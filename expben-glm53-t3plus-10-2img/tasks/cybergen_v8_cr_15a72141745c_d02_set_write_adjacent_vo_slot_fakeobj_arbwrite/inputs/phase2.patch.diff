@@ -1,0 +1,29 @@
+diff --git a/src/maglev/maglev-graph-builder.cc b/src/maglev/maglev-graph-builder.cc
+--- a/src/maglev/maglev-graph-builder.cc
++++ b/src/maglev/maglev-graph-builder.cc
+@@ -13539,6 +13539,12 @@
+   DCHECK(!map.IsInobjectSlackTrackingInProgress());
+   int slot_count = map.instance_size() / kTaggedSize;
+   SBXCHECK_GE(slot_count, 3);
++  // The topmost in-object property slot is only ever written by a field
++  // store, which targets the materialized object directly, so the tracked
++  // slot array can stop one slot short of the instance size.
++  if (slot_count > Shape::header_slot_count) {
++    slot_count--;
++  }
+   VirtualObject* vobj = NodeBase::New<VirtualObject>(
+       zone(), 0, NewObjectId(), this, &Shape::kObjectLayout, map, slot_count);
+   vobj->set(HeapObject::kMapOffset, GetConstant(map));
+@@ -13614,6 +13620,12 @@
+   compiler::MapRef map = constructor.initial_map(broker());
+   int slot_count = prediction.instance_size() / kTaggedSize;
+   SBXCHECK_GE(slot_count, 3);
++  // The topmost in-object property slot is only ever written by a field
++  // store, which targets the materialized object directly, so the tracked
++  // slot array can stop one slot short of the instance size.
++  if (slot_count > Shape::header_slot_count) {
++    slot_count--;
++  }
+   VirtualObject* vobj = NodeBase::New<VirtualObject>(
+       zone(), 0, NewObjectId(), this, &Shape::kObjectLayout, map, slot_count);
+   vobj->set(HeapObject::kMapOffset, GetConstant(map));

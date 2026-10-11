@@ -134,8 +134,31 @@ PY
 echo "[rjob-docker] phase=source-patch complete"
 
 export PATH="$BUILD_ROOT:$PATH"
-command -v ninja >/dev/null
 command -v gn >/dev/null
+# Resolve ninja through a chain rather than demanding it on PATH.  The donor
+# image is not guaranteed to ship /usr/bin/ninja (the upstream bench-v8 image
+# does not; it relies on depot_tools), and the injected source-deps bundle
+# carries its own copy at third_party/depot_tools.  Upstream's image-build-inner
+# had exactly this chain -- dropping it to a bare `command -v ninja` made the
+# whole build depend on a property of whichever image happened to be the base.
+NINJA=""
+for candidate in \
+  /rlenv/source/v8/third_party/depot_tools/autoninja \
+  /rlenv/source/v8/third_party/depot_tools/ninja \
+  /rlenv/source/depot_tools/autoninja \
+  /rlenv/source/depot_tools/ninja; do
+  if [[ -x "$candidate" ]]; then NINJA="$candidate"; break; fi
+done
+if [[ -z "$NINJA" ]]; then
+  for candidate in autoninja ninja; do
+    if command -v "$candidate" >/dev/null 2>&1; then NINJA="$(command -v "$candidate")"; break; fi
+  done
+fi
+if [[ -z "$NINJA" ]]; then
+  echo "[rjob-docker] no ninja found: not in /rlenv/source/*/depot_tools, not on PATH" >&2
+  exit 4
+fi
+echo "[rjob-docker] ninja=$NINJA"
 mkdir -p /tmp/phase2-build-evidence "/rlenv/binaries/$SIDE"
 compat_args=/tmp/phase2-compat.gn
 # Compatibility args for building an older V8 source with the newer injected
@@ -174,7 +197,7 @@ for config in $CONFIGS; do
   echo "[rjob-docker] phase=gn config=$config complete"
 
   echo "[rjob-docker] phase=ninja config=$config jobs=$JOBS start"
-  if ninja -C "$out" -j "$JOBS" d8 >> "$log" 2>&1; then
+  if "$NINJA" -C "$out" -j "$JOBS" d8 >> "$log" 2>&1; then
     echo 'BUILD_EXIT=0' >> "$log"
   else
     rc=$?
@@ -203,7 +226,7 @@ for config in $CONFIGS; do
           sed -i 's/ --verify-heap//g' "$ninja_file"
         fi
       done
-      if ninja -C "$out" -j "$JOBS" d8 >> "$log" 2>&1; then
+      if "$NINJA" -C "$out" -j "$JOBS" d8 >> "$log" 2>&1; then
         rc=0
         echo 'BUILD_EXIT=0 (mksnapshot heap verification skipped)' >> "$log"
       fi

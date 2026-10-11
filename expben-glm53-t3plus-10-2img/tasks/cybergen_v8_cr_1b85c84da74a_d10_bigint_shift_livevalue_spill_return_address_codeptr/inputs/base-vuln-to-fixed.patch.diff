@@ -1,0 +1,87 @@
+diff --git a/src/compiler/simplified-lowering.cc b/src/compiler/simplified-lowering.cc
+index 02a53ebcc21705d1fd3c3bc70ed458d960bf7949..2b6ed7214e6fb0e0c57648ce15ada113726ec1d1 100644
+--- a/src/compiler/simplified-lowering.cc
++++ b/src/compiler/simplified-lowering.cc
+@@ -2066,6 +2066,8 @@ class RepresentationSelector {
+     BigIntRef bigint = ref.AsBigInt();
+     bool lossless = false;
+     int64_t shift_amount = bigint.AsInt64(&lossless);
++    // We bail out if we cannot represent the shift amount correctly.
++    if (!lossless) return false;
+ 
+     // Canonicalize {shift_amount}.
+     bool is_shift_left =
+@@ -2076,7 +2078,7 @@ class RepresentationSelector {
+       if (shift_amount == std::numeric_limits<int64_t>::min()) return false;
+       is_shift_left = !is_shift_left;
+       shift_amount = -shift_amount;
+-      DCHECK(shift_amount > 0);
++      DCHECK_GT(shift_amount, 0);
+     }
+     DCHECK_GE(shift_amount, 0);
+ 
+@@ -2089,7 +2091,7 @@ class RepresentationSelector {
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+                     UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+         } else if (shift_amount == 0) {
+           DeferReplacement(node, node->InputAt(0));
+@@ -2108,7 +2110,7 @@ class RepresentationSelector {
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+                     UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           ReplaceWithPureNode(
+               node,
+               graph()->NewNode(lowering->machine()->Word64Sar(),
+@@ -2130,7 +2132,7 @@ class RepresentationSelector {
+                     UseInfo::CheckedBigIntTruncatingWord64(FeedbackSource{}),
+                     UseInfo::Any(), MachineRepresentation::kWord64);
+       if (lower<T>()) {
+-        if (!lossless || shift_amount > 63) {
++        if (shift_amount > 63) {
+           DeferReplacement(node, jsgraph_->Int64Constant(0));
+         } else if (shift_amount == 0) {
+           DeferReplacement(node, node->InputAt(0));
+diff --git a/test/mjsunit/compiler/bigint-shift-left.js b/test/mjsunit/compiler/bigint-shift-left.js
+index 1f17eeba6d4e8dfcfaa0257eeec327709c6d7689..2afce4b235e6267c24bd5ef3e9eb549693520683 100644
+--- a/test/mjsunit/compiler/bigint-shift-left.js
++++ b/test/mjsunit/compiler/bigint-shift-left.js
+@@ -87,7 +87,7 @@
+ })();
+ 
+ (function OptimizeAndTest() {
+-  const bi = 2n ** 64n;
++  const bi = 2n ** 62n;
+   function ShiftLeftByLarge(a) {
+     return BigInt.asIntN(62, a << bi);
+   }
+diff --git a/test/mjsunit/regress/regress-345960102.js b/test/mjsunit/regress/regress-345960102.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..896277a7f7ac6f0c4db4e74177eb8fc9988432e7
+--- /dev/null
++++ b/test/mjsunit/regress/regress-345960102.js
+@@ -0,0 +1,19 @@
++// Copyright 2024 the V8 project authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Flags: --allow-natives-syntax
++
++y = BigInt("0xffffffffffffffff");
++
++function test() {
++    let x = BigInt.asIntN(64, -1n);
++    let result = x >> (y);
++    return BigInt.asIntN(64, result);
++}
++
++%PrepareFunctionForOptimization(test);
++assertEquals(-1n, test());
++assertEquals(-1n, test());
++%OptimizeFunctionOnNextCall(test)
++assertEquals(-1n, test());

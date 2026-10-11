@@ -1,0 +1,50 @@
+--- a/src/maglev/maglev-graph-builder.cc
++++ b/src/maglev/maglev-graph-builder.cc
+@@ -13643,21 +13643,7 @@
+   vobj->set(HeapObject::kMapOffset, GetConstant(map));
+   // TODO(jgruber): This is a smi field. Is there some advantage to creating an
+   // int32 constant first?
+-  // A first-element constant in (kPreextendedLengthMarker,
+-  // kPreextendedLengthMarker + kPreextendedMaxSlack] marks a pre-extended
+-  // array: the published length runs ahead of the tracked slots, and element
+-  // accesses are bounded by the published length alone.
+-  constexpr int32_t kPreextendedLengthMarker = 0x15a721;
+-  constexpr int32_t kPreextendedMaxSlack = 64;
+-  int stored_length = length;
+-  if (length > 0) {
+-    if (std::optional<int32_t> marker = TryGetInt32Constant(values[0]);
+-        marker.has_value() && *marker > kPreextendedLengthMarker &&
+-        *marker <= kPreextendedLengthMarker + kPreextendedMaxSlack) {
+-      stored_length = length + (*marker - kPreextendedLengthMarker);
+-    }
+-  }
+-  vobj->set(FixedArrayBase::kLengthOffset, GetInt32Constant(stored_length));
++  vobj->set(FixedArrayBase::kLengthOffset, GetInt32Constant(length));
+   for (int i = 0; i < length; i++) {
+     DCHECK_NOT_NULL(values[i]);
+     vobj->set(FixedArray::OffsetOfElementAt(i), values[i]);
+--- a/src/maglev/maglev-ir.h
++++ b/src/maglev/maglev-ir.h
+@@ -6327,7 +6327,9 @@
+   }
+ 
+   ValueNode* get(uint32_t offset) const {
+-    return slots_[object_layout_->SlotAtOffset(offset)];
++    uint32_t slot_index = object_layout_->SlotAtOffset(offset);
++    SBXCHECK_LT(slot_index, slot_count());
++    return slots_[slot_index];
+   }
+ 
+   void set(uint32_t offset, ValueNode* value) {
+@@ -6526,6 +6528,11 @@
+     // Values set here can leak to the interpreter. Conversions should be stored
+     // in known_node_aspects/NodeInfo.
+     DCHECK(!value->properties().is_conversion());
++    // TODO(jgruber): Indices are commonly passed in from places that read
++    // potentially attacker-corrupted heap objects. Either we catch all such
++    // usages with CHECKs, or we add one here. Honestly I like neither option
++    // that much, but doing so in this chokepoint is safer.
++    SBXCHECK_LT(i, slot_count());
+     slots_[i] = value;
+   }
+ 
