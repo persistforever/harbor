@@ -22,14 +22,16 @@ USER root
 WORKDIR /
 ADD build-inputs/source-deps.tar /rlenv/source/v8/
 ADD src/fixed.tar /rlenv/source/v8/
-COPY scripts/rjob_compile_d8.sh /tmp/b/rjob_compile_d8.sh
-COPY build-inputs/gn /tmp/b/gn
-COPY build-inputs/gn-args/ /tmp/b/gn-args/
+COPY scripts/rjob_compile_d8.sh /tmp/phase2-build/rjob_compile_d8.sh
+COPY build-inputs/gn /tmp/phase2-build/gn
+COPY build-inputs/gn-args/ /tmp/phase2-gn-args/
+COPY build-inputs/pkg-config-wrapper.sh /tmp/phase2-build/pkg-config
 RUN set -eux; \
-    chmod 0755 /tmp/b/gn /tmp/b/rjob_compile_d8.sh; \
+    chmod 0755 /tmp/phase2-build/gn /tmp/phase2-build/pkg-config \
+      /tmp/phase2-build/rjob_compile_d8.sh; \
     PHASE2_BINARY_SIDE=fixed PHASE2_BUILD_CONFIGS="{configs}" \
     PHASE2_BUILD_JOBS={build_jobs} \
-    PATH=/tmp/b:$PATH /tmp/b/rjob_compile_d8.sh
+    PATH=/tmp/phase2-build:$PATH /tmp/phase2-build/rjob_compile_d8.sh
 
 # --- side 2: the VULNERABLE tree, at <fix>^ ---------------------------------
 # Built last so the tree left behind is the shipped one; pruned after the build
@@ -39,14 +41,16 @@ USER root
 WORKDIR /
 ADD build-inputs/source-deps.tar /rlenv/source/v8/
 ADD src/vuln.tar /rlenv/source/v8/
-COPY scripts/rjob_compile_d8.sh /tmp/b/rjob_compile_d8.sh
-COPY build-inputs/gn /tmp/b/gn
-COPY build-inputs/gn-args/ /tmp/b/gn-args/
+COPY scripts/rjob_compile_d8.sh /tmp/phase2-build/rjob_compile_d8.sh
+COPY build-inputs/gn /tmp/phase2-build/gn
+COPY build-inputs/gn-args/ /tmp/phase2-gn-args/
+COPY build-inputs/pkg-config-wrapper.sh /tmp/phase2-build/pkg-config
 RUN set -eux; \
-    chmod 0755 /tmp/b/gn /tmp/b/rjob_compile_d8.sh; \
+    chmod 0755 /tmp/phase2-build/gn /tmp/phase2-build/pkg-config \
+      /tmp/phase2-build/rjob_compile_d8.sh; \
     PHASE2_BINARY_SIDE=vuln PHASE2_BUILD_CONFIGS="{configs}" \
     PHASE2_BUILD_JOBS={build_jobs} \
-    PATH=/tmp/b:$PATH /tmp/b/rjob_compile_d8.sh
+    PATH=/tmp/phase2-build:$PATH /tmp/phase2-build/rjob_compile_d8.sh
 RUN set -eux; \
     rm -rf /rlenv/source/v8/out \
            /rlenv/source/v8/build \

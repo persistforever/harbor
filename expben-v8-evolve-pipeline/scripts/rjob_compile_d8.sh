@@ -43,7 +43,12 @@ fi
 # has to succeed -- checked here, before the gni/.gn/header fixups below touch
 # the same tree, and here rather than in the final stage because the phase-two
 # patch deliberately never reaches the shipped image.
-patch -d "$SOURCE_ROOT" -p1 --dry-run --reverse < "$PHASE2_PATCH" > /dev/null
+# Only meaningful when there IS a patch: the source stage has no phase-two
+# inputs at all ($PHASE2_PATCH does not exist there, and an unguarded redirect
+# dies with "No such file or directory" before anything is compiled).
+if [ -s "$PHASE2_PATCH" ]; then
+  patch -d "$SOURCE_ROOT" -p1 --dry-run --reverse < "$PHASE2_PATCH" > /dev/null
+fi
 
 python3 - <<'PY'
 import re
@@ -108,28 +113,81 @@ for _header in _headers:
 print(f'[rjob-docker] added missing #include <vector> to {_fixed} headers')
 
 dotfile_path = Path('/rlenv/source/v8/.gn')
+settings_path = Path('/rlenv/source/v8/build/dotfile_settings.gni')
+# .gn belongs to the *problem's* V8 revision; build/ belongs to the injected
+# toolchain bundle.  Chromium renamed the dotfile allowlists between those two
+# points, so .gn can reference a build_dotfile_settings entry the injected file
+# does not export:
+#   problem's .gn : build_dotfile_settings.exec_script_allowlist
+#   injected build: build_dotfile_settings.exec_script_whitelist
+#   -> ERROR at //.gn:44:48: No value named "exec_script_allowlist"
+# Rewrite .gn towards whatever build/dotfile_settings.gni actually exports.
+# Keyed off that file rather than hardcoded in one direction, so it is a no-op
+# for revisions whose .gn already agrees and still works if a future bundle is
+# older than the tree.  Nothing is invented: a name neither file declares is
+# dropped rather than pointed at a variable GN cannot resolve.
+settings_text = settings_path.read_text(encoding='utf-8')
 dotfile_text = dotfile_path.read_text(encoding='utf-8')
-# Older revisions spell it "exec_script_whitelist" while modern
-# build_dotfile_settings.gni only exports "exec_script_allowlist".
-dotfile_text = dotfile_text.replace(
-    'exec_script_whitelist', 'exec_script_allowlist'
-)
-if 'expand_directory_allowlist' not in dotfile_text:
-    pattern = re.compile(
-        r'(exec_script_allowlist\s*=\s*build_dotfile_settings\.exec_script_allowlist\s*\+\s*\[[^\]]*\]\n)',
-        re.S,
-    )
-    match = pattern.search(dotfile_text)
-    if not match:
-        raise SystemExit('.gn is missing the expected allowlist anchor')
-    dotfile_path.write_text(
-        dotfile_text[:match.end()]
-        + '\nexpand_directory_allowlist = build_dotfile_settings.expand_directory_allowlist\n'
-        + dotfile_text[match.end():],
-        encoding='utf-8',
-    )
-else:
-    dotfile_path.write_text(dotfile_text, encoding='utf-8')
+_renamed = 0
+for _allowlist, _whitelist in (
+    ('exec_script_allowlist', 'exec_script_whitelist'),
+    ('expand_directory_allowlist', 'expand_directory_whitelist'),
+):
+    if _allowlist in dotfile_text and _allowlist not in settings_text:
+        if _whitelist in settings_text:
+            dotfile_text = dotfile_text.replace(_allowlist, _whitelist)
+        else:
+            # build/ exports neither spelling: drop the statement outright.
+            dotfile_text = re.sub(
+                rf'^{_allowlist}\s*=.*?(?=\n[a-zA-Z_#]|\Z)',
+                '',
+                dotfile_text,
+                flags=re.S | re.M,
+            )
+        _renamed += 1
+    elif _whitelist in dotfile_text and _whitelist not in settings_text:
+        if _allowlist in settings_text:
+            dotfile_text = dotfile_text.replace(_whitelist, _allowlist)
+            _renamed += 1
+dotfile_path.write_text(dotfile_text, encoding='utf-8')
+print(f'[rjob-docker] .gn allowlist names aligned with build/: {_renamed}')
+
+# A V8 revision from 2025 ships its own third_party/jsoncpp, whose BUILD.gn ends
+# a target with
+#     # TODO(https://github.com/open-source-parsers/jsoncpp/pull/1612):
+#     # Remove this when the PR is merged.
+#     use_libcxx_modules = false
+# a workaround written against a build/ that still declares that argument.  The
+# injected build/ does not, so the assignment creates a local nobody reads and
+# GN turns that into a hard error:
+#     ERROR at //third_party/jsoncpp/BUILD.gn:51:24: Assignment had no effect.
+# Passing it in --args does not help: an unknown argument is only a warning, and
+# declaring the name globally does not make a target-scope assignment to it
+# "used" either (verified).  Drop the assignment -- but only when the injected
+# build/ really does not know the name, so this stays a no-op on a build/ that
+# does.  build/ itself is never edited.
+_seed_root = Path('/rlenv/source/v8')
+_build_root = _seed_root / 'build'
+_known = False
+for _path in _build_root.rglob('*'):
+    if _path.suffix in ('.gn', '.gni') and _path.is_file():
+        if b'use_libcxx_modules' in _path.read_bytes():
+            _known = True
+            break
+if not _known:
+    _pattern = re.compile(r'^[ \t]*use_libcxx_modules[ \t]*=.*\n', re.M)
+    _stripped = 0
+    for _path in list(_seed_root.rglob('*.gn')) + list(_seed_root.rglob('*.gni')):
+        if _path.is_relative_to(_build_root):
+            continue
+        _original = _path.read_text(encoding='utf-8', errors='ignore')
+        if 'use_libcxx_modules' not in _original:
+            continue
+        _updated, _count = _pattern.subn('', _original)
+        if _count:
+            _path.write_text(_updated, encoding='utf-8')
+            _stripped += _count
+    print(f'[rjob-docker] dropped {_stripped} stale use_libcxx_modules assignment(s)')
 PY
 echo "[rjob-docker] phase=source-patch complete"
 
@@ -168,12 +226,33 @@ compat_args=/tmp/phase2-compat.gn
 # a directory that neither the source image nor the fallback bundle ships, so GN
 # dies with "Unable to load .../third_party/compiler-rt/BUILD.gn".  The 14.9-era
 # .gn sets it to false itself; pin it here for the revisions that do not.
+# `enable_rust=false` and `v8_enable_temporal_support=false` exist for the
+# gclient-only Chromium half of the tree, which the injected bundle does not
+# carry.  A V8 revision from 2025 sets both in its .gn default_args / v8.gni
+# defaults (v8_enable_temporal_support is `target_cpu != "ppc64" && ...`, i.e.
+# true on x64), and then GN reaches for
+#   //tools/rust/update_rust.py          (build/config/rust.gni:152)
+#   //third_party/rust/temporal_capi     (BUILD.gn:2355)
+# neither of which is present.  Dropping them costs nothing observable: the
+# Temporal API is still gated behind --harmony-temporal at runtime, so d8
+# behaves identically unless that flag is passed.
+# `v8_enable_fuzztest=false` covers the last of the same kind: it defaults to
+# true on clang/x64 (v8.gni: !build_with_v8_embedder && ... && is_clang), and
+# test/unittests/BUILD.gn then adds
+#     deps += [ "//third_party/fuzztest:init_fuzztest",
+#               "//third_party/abseil-cpp:absl_full" ]   (:826, :828)
+# to //:v8_unittests.  Neither directory exists in the injected bundle, so the
+# unresolved-dependency pass fails on them.  Only d8 is built, so this is a
+# test-only knob and costs nothing.
 printf '%s\n' \
   'use_siso=false' \
   'treat_warnings_as_errors=false' \
   'use_llvm_libatomic=false' \
   'use_libcxx_modules=false' \
   'use_cxx23=false' \
+  'enable_rust=false' \
+  'v8_enable_fuzztest=false' \
+  'v8_enable_temporal_support=false' \
   'v8_use_perfetto_json_export=false' > "$compat_args"
 
 for config in $CONFIGS; do

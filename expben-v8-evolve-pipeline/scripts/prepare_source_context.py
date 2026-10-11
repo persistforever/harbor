@@ -184,11 +184,13 @@ def main() -> None:
             text.replace("{{BUG_ID}}", problem_id), encoding="utf-8")
     if args.build_inputs:
         bi = args.build_inputs.resolve()
-        for required in ("source-deps", "gn", "gn-args-vuln"):
+        for required in ("source-deps", "gn", "gn-args-vuln", "pkg-config-wrapper.sh"):
             if not (bi / required).exists():
                 raise SystemExit(f"build-inputs is missing {required}: {bi}")
         subprocess.run(["install", "-D", "-m", "0755", str(bi / "gn"),
                         str(ctx / "build-inputs" / "gn")], check=True)
+        subprocess.run(["install", "-D", "-m", "0755", str(bi / "pkg-config-wrapper.sh"),
+                        str(ctx / "build-inputs" / "pkg-config-wrapper.sh")], check=True)
         subprocess.run(["cp", "-a", f"{bi/'gn-args-vuln'}/.", str(ctx/"build-inputs"/"gn-args")], check=True)
         # source-deps as a tar, the form the Dockerfile ADDs
         subprocess.run(["tar", "-cf", str(ctx / "build-inputs" / "source-deps.tar"),

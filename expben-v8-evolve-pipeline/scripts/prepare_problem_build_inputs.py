@@ -57,8 +57,107 @@ DEFAULT_PKG_CONFIG = Path(
     "/mnt/ws-jfs/agent-zhangchao/zhangchao/github/harbor/"
     "adapters/expben_v8_vuln_evolution/scripts/pkg-config-wrapper.sh"
 )
+DEFAULT_SIMDUTF = Path("/data/temporal/simdutf-amalgam/chromium-a6fc5852")
+DEFAULT_PARTITION_ALLOC = Path("/data/temporal/partition-alloc/chromium-a6fc5852")
+DEFAULT_HIGHWAY = Path("/data/temporal/highway-84379d1c")
+DEFAULT_ABSEIL = Path("/data/temporal/abseil-cpp-c3655ab8")
 HARDLINK_FROM_FALLBACK = ("build", "buildtools", "third_party", "tools")
 GIT_EXPORT = ("gni", "test")
+# Chromium-only directories V8's BUILD.gn reaches for that the shared fallback
+# checkout does not carry.  Both are DEPS entries of the V8 checkout, not part
+# of the V8 repository, so `git archive <vulnerable>` cannot produce them and a
+# problem that predates them does not notice they are absent.
+#
+#   third_party/simdutf         V8 >= 2023; five src/ files include
+#                               "third_party/simdutf/simdutf.h" and BUILD.gn
+#                               has it in three dep lists.
+#                               -> ERROR at //BUILD.gn:5032:5:
+#                                  Unable to load third_party/simdutf/BUILD.gn
+#   third_party/partition_alloc V8 >= 2025; pulled in whenever
+#                               v8_enable_partition_alloc is on, which it
+#                               defaults to on sandboxed x64.
+#                               -> ERROR at //BUILD.gn:5104:22:
+#                                  Unable to load third_party/partition_alloc/BUILD.gn
+#
+# Both are copied straight out of chromium/chromium @ a6fc5852b1a8 (2025-09-28:
+# the revision closest to what these problems' own DEPS pins) into the problem's
+# tree, per problem, so the shared fallback stays untouched.
+#
+#   third_party/highway/src     V8 >= 2025; //:v8's deps gained
+#                               "//third_party/highway:libhwy" (BUILD.gn:6469),
+#                               and the V8 tarball carries third_party/highway/
+#                               (BUILD.gn, LICENSE, ...) but not the fetched
+#                               src/ half.  Unlike the two above this one is a
+#                               *subdirectory* of a tree that does exist, so the
+#                               destination is third_party/highway/src.
+#                               -> ninja: error: '../../v8/third_party/highway/
+#                                  src/hwy/abort.cc' ... missing and no known
+#                                  rule to make it
+#                               (GN itself is happy -- DEPS' file list is what
+#                               ninja resolves, so this only shows up at build
+#                               time, not at `gn gen`.)
+# It comes from google/highway at the exact revision V8's DEPS pins
+# (84379d1c73de9681b54fbe1c035a23c7bd5d272d) rather than from the Chromium
+# mirror, whose highway may be a different revision than the vendored BUILD.gn
+# expects.
+#
+#   third_party/abseil-cpp      present in the fallback, but at a *different
+#                               revision* than this problem's DEPS pin
+#                               (c3655ab8bb514aa318207c2685b3ba557a048201).
+#                               Abseil renamed absl::Mutex's Lockable methods
+#                               to lowercase at some point in 2025, and this
+#                               revision's src/base/platform/mutex.cc uses the
+#                               new spelling:
+#                               -> ../../v8/src/base/platform/mutex.cc:63:18:
+#                                  error: no member named 'lock' in
+#                                  'absl::Mutex'; did you mean 'Lock'?
+#                               A missing directory would at least fail at
+#                               `gn gen`; a stale one only fails per-file, so
+#                               it is the more expensive kind of drift.
+VENDORED_THIRD_PARTY = (
+    # (cache dir stem, destination under third_party/, files that must exist)
+    ("simdutf", "simdutf", ("simdutf.h", "simdutf.cpp", "BUILD.gn")),
+    ("partition_alloc", "partition_alloc", ("BUILD.gn", "partition_alloc.gni")),
+    ("highway", "highway/src", ("hwy", "hwy.gni")),
+    ("abseil", "abseil-cpp",
+     ("BUILD.gn", "absl.gni", "absl/synchronization/mutex.h")),
+)
+# The cache directory each stem defaults to (`abseil` is not the directory
+# name, so the stem cannot be derived from the destination).
+VENDORED_DEFAULTS = {
+    "simdutf": DEFAULT_SIMDUTF,
+    "partition_alloc": DEFAULT_PARTITION_ALLOC,
+    "highway": DEFAULT_HIGHWAY,
+    "abseil": DEFAULT_ABSEIL,
+}
+
+# build/ files the injected bundle is missing but a vendored third_party tree
+# imports.  Chromium's third_party/simdutf/BUILD.gn opens with
+#     import("//build/config/avx512.gni")
+# and the injected 2024-02 build/ predates that file:
+#     ERROR at //third_party/simdutf/BUILD.gn:5:1:
+#     Unable to load "//build/config/avx512.gni"
+# avx512.gni is only `declare_args() { allow_avx512 = true }`, so installing the
+# real file keeps the vendored BUILD.gn byte-for-byte Chromium's.
+DEFAULT_CHROMIUM_COMPAT = Path("/data/temporal/chromium-compat-a6fc5852")
+COMPAT_BUILD_FILES = ("build/config/avx512.gni",)
+
+# Configs the injected build/ predates.  A V8 revision from 2025 puts
+# //build/config/compiler:no_exit_time_destructors in 25 targets' configs lists
+# (it is Chromium's rename of the old `wexit_time_destructors` variable), and
+# GN refuses to generate at all when a config label does not resolve:
+#     ERROR Unresolved dependencies.
+#     //:d8(//build/toolchain/linux:clang_x64)
+#       needs //build/config/compiler:no_exit_time_destructors(...)
+# The block is taken verbatim from Chromium rather than paraphrased, and
+# appended to the *problem's* build/config/compiler/BUILD.gn through a fresh
+# inode so the hardlinked shared fallback stays intact.  The marker makes the
+# step idempotent.
+COMPAT_BUILD_FRAGMENTS = (
+    ("build/config/compiler/BUILD.gn",
+     "fragments/build/config/compiler/no_exit_time_destructors.gn",
+     "no_exit_time_destructors"),
+)
 
 # Revision-coupled crates that must come from the problem's own image, not from
 # the shared fallback checkout.
@@ -130,6 +229,88 @@ NACL_GLOBALS = (
 )
 
 
+def copy_vendored(source: Path, destination: Path, required: tuple[str, ...]) -> Path:
+    """Copy a vendored Chromium directory into this problem's tree.
+
+    ``deps/third_party`` is a hardlink tree of the shared fallback, so every
+    destination path is removed before it is written: a plain copy over an
+    existing inode would write *through* the hardlink and corrupt the shared
+    package for every other problem (the same trap ``rename_with_fresh_inode``
+    and ``overlay_from_image`` exist for).  Today the fallback carries neither
+    of these directories, so this normally creates them outright.
+    """
+    for name in required:
+        if not (source / name).exists():
+            raise SystemExit(f"vendored source is missing {name}: {source}")
+    if destination.is_symlink():
+        raise SystemExit(f"refusing to write through symlink: {destination}")
+    destination.mkdir(parents=True, exist_ok=True)
+    for entry in sorted(source.iterdir()):
+        if entry.name in (".git", "__pycache__"):
+            continue
+        target = destination / entry.name
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+        if entry.is_dir():
+            shutil.copytree(entry, target)
+        else:
+            shutil.copyfile(entry, target)
+            target.chmod(0o644)
+    return destination
+
+
+def write_compat_build_files(deps: Path, source: Path) -> list[Path]:
+    """Install build/ files the injected bundle lacks but vendored trees import.
+
+    ``deps/build`` is a hardlink tree of the shared fallback, so an existing
+    destination is unlinked before it is written (fresh inode), and a symlink is
+    refused rather than followed into the shared package.
+    """
+    written: list[Path] = []
+    for relative in COMPAT_BUILD_FILES:
+        origin = source / relative
+        if not origin.is_file():
+            raise SystemExit(f"compat source is missing {relative}: {origin}")
+        target = deps / relative
+        if target.is_symlink():
+            raise SystemExit(f"refusing to write through symlink: {target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            target.unlink()
+        shutil.copyfile(origin, target)
+        target.chmod(0o644)
+        written.append(target)
+    return written
+
+
+def write_compat_build_fragments(deps: Path, source: Path) -> list[Path]:
+    """Append a cached GN block to a build/ file the injected bundle predates.
+
+    Unlike ``write_compat_build_files`` the target already exists and only needs
+    a definition added to it, so the file is rewritten through a fresh inode
+    (the same hardlink hazard).  Idempotent on the fragment's marker comment, so
+    an already-patched tree is left alone rather than getting the block twice.
+    """
+    written: list[Path] = []
+    for relative, fragment_relative, marker in COMPAT_BUILD_FRAGMENTS:
+        origin = source / fragment_relative
+        if not origin.is_file():
+            raise SystemExit(f"compat fragment is missing: {origin}")
+        target = deps / relative
+        if not target.is_file():
+            raise SystemExit(f"compat fragment target is missing: {target}")
+        if target.is_symlink():
+            raise SystemExit(f"refusing to write through symlink: {target}")
+        text = target.read_text(encoding="utf-8")
+        if f"expben compat fragment: {marker}" in text:
+            continue
+        rename_with_fresh_inode(target, text.rstrip("\n") + "\n" + origin.read_text(encoding="utf-8"))
+        written.append(target)
+    return written
+
+
 def write_nacl_stub(deps: Path) -> Path:
     """Make build/config/nacl/config.gni resolvable for this problem."""
     destination = deps / "build" / "config" / "nacl" / "config.gni"
@@ -150,6 +331,26 @@ USE_GOLD_MARK = "use_gold compat global, injected by prepare_problem_build_input
 USE_GOLD_GLOBALS = (
     "\n# " + USE_GOLD_MARK + "\n"
     "use_gold = false\n"
+)
+
+# The dropped build/config/nacl/config.gni is also where is_nacl_saigo used to
+# be declared, but the injected build/ still *reads* it:
+#   build/config/compiler/BUILD.gn:1064   if (is_nacl_saigo) {
+#   build/config/c++/c++.gni:60           ... || is_nacl_saigo
+#   build/config/compiler/BUILD.gn:674    if (is_nacl && !is_nacl_saigo) {
+# The two-operand uses short-circuit on is_nacl == false and never surface; the
+# bare one is evaluated as soon as its config is used, and a V8 revision that
+# pulls in //build/config/compiler:wexit_time_destructors hits it immediately:
+#     ERROR at //build/config/compiler/BUILD.gn:1064:9: Undefined identifier
+# Keep it in its own marked block so trees that already carry the is_nacl
+# block are still upgraded.
+NACL_SAIGO_MARK = "is_nacl_saigo compat global, injected by prepare_problem_build_inputs.py"
+NACL_SAIGO_GLOBALS = (
+    "\n# " + NACL_SAIGO_MARK + "\n"
+    "# See the is_nacl block above: build/config/nacl/config.gni is gone from the\n"
+    "# injected build/ but its variables are still referenced. V8 never builds\n"
+    "# for NaCl, so false is correct.\n"
+    "is_nacl_saigo = false\n"
 )
 
 
@@ -239,6 +440,8 @@ def write_compat_globals(deps: Path) -> Path:
         additions += NACL_GLOBALS
     if USE_GOLD_MARK not in text:
         additions += USE_GOLD_GLOBALS
+    if NACL_SAIGO_MARK not in text:
+        additions += NACL_SAIGO_GLOBALS
     if not additions:
         return target
     rename_with_fresh_inode(target, text.rstrip("\n") + "\n" + additions)
@@ -435,6 +638,14 @@ def main() -> None:
     ap.add_argument("--gn-path", type=Path, default=DEFAULT_GN)
     ap.add_argument("--gn-args-dir", type=Path, default=DEFAULT_GN_ARGS)
     ap.add_argument("--pkg-config-path", type=Path, default=DEFAULT_PKG_CONFIG)
+    ap.add_argument("--chromium-compat-dir", type=Path, default=DEFAULT_CHROMIUM_COMPAT,
+                    help="build/ files the injected bundle lacks (avx512.gni), "
+                         "installed into each problem's build/ tree")
+    for stem, destination, _required in VENDORED_THIRD_PARTY:
+        ap.add_argument(f"--{stem.replace('_', '-')}-dir", type=Path,
+                        default=VENDORED_DEFAULTS[stem], metavar="DIR",
+                        help=f"vendored tree copied to third_party/{destination}/ "
+                             f"in each problem")
     ap.add_argument("--build-jobs", type=int, default=64)
     ap.add_argument("--verify-image", action="store_true")
     ap.add_argument("--no-overlay-image", action="store_true",
@@ -444,7 +655,11 @@ def main() -> None:
     args = ap.parse_args()
 
     for path, what in ((args.v8_git, "v8 git checkout"), (args.gn_path, "gn"),
-                       (args.gn_args_dir, "gn args"), (args.pkg_config_path, "pkg-config")):
+                       (args.gn_args_dir, "gn args"), (args.pkg_config_path, "pkg-config"),
+                       (args.simdutf_dir, "simdutf amalgamation"),
+                       (args.chromium_compat_dir, "chromium compat build files"),
+                       *((getattr(args, stem + "_dir"), f"{stem} tree")
+                         for stem, _d, _r in VENDORED_THIRD_PARTY)):
         if not path.exists():
             raise SystemExit(f"{what} not found: {path}")
     for config in ("debug", "debug-asan", "release", "release-asan", "coverage"):
@@ -481,6 +696,15 @@ def main() -> None:
                 raise SystemExit(f"shared fallback has no {name}/: {source}")
             run("cp", "-al", str(source), str(deps / name))
         export_tree(args.v8_git, vulnerable, deps)
+        for name, relative, required in VENDORED_THIRD_PARTY:
+            source = getattr(args, name + "_dir")
+            destination = copy_vendored(source, deps / "third_party" / relative, required)
+            files = sum(1 for p in destination.rglob("*") if p.is_file())
+            print(f"    {name:<14}-> {destination} ({files} files)")
+        for path in write_compat_build_files(deps, args.chromium_compat_dir):
+            print(f"    compat build  -> {path}")
+        for path in write_compat_build_fragments(deps, args.chromium_compat_dir):
+            print(f"    compat fragment -> {path}")
         print(f"    nacl stub     -> {write_nacl_stub(deps)}")
         print(f"    nacl globals  -> {write_nacl_globals(deps)}")
 
@@ -523,6 +747,48 @@ def main() -> None:
                     "warning": "15.5-era build/ and external toolchain (LLVM/Rust 23), "
                                "not this revision's DEPS. Same fallback already used "
                                "successfully for 00348ef5c3c1 / 1158ae719749.",
+                },
+                "vendored": {
+                    "third_party/simdutf": {
+                        "source": str(args.simdutf_dir),
+                        "version": "Chromium's checked-in amalgamation "
+                                   "(chromium/chromium @ a6fc5852b1a8)",
+                        "reason": "neither the shared fallback nor the source "
+                                  "image ships it; V8's BUILD.gn requires it",
+                    },
+                    "build/config/avx512.gni": {
+                        "source": str(args.chromium_compat_dir),
+                        "reason": "imported by Chromium's third_party/simdutf/"
+                                  "BUILD.gn; the injected 2024-02 build/ predates it",
+                    },
+                    "third_party/partition_alloc": {
+                        "source": str(args.partition_alloc_dir),
+                        "version": "chromium/chromium @ a6fc5852b1a8 "
+                                   "(base/allocator/partition_allocator)",
+                        "reason": "v8_enable_partition_alloc defaults on for "
+                                  "sandboxed x64; the fallback has no PA",
+                    },
+                    "third_party/highway/src": {
+                        "source": str(args.highway_dir),
+                        "version": "google/highway @ "
+                                   "84379d1c73de9681b54fbe1c035a23c7bd5d272d "
+                                   "(V8 DEPS' own pin for this tree)",
+                        "reason": "//:v8 depends on //third_party/highway:libhwy; "
+                                  "the tarball ships third_party/highway/BUILD.gn "
+                                  "but the fetched src/ half is absent, so ninja "
+                                  "fails on src/hwy/*.cc after gn gen succeeds",
+                    },
+                    "third_party/abseil-cpp": {
+                        "source": str(args.abseil_dir),
+                        "version": "chromium/src/third_party/abseil-cpp @ "
+                                   "c3655ab8bb514aa318207c2685b3ba557a048201 "
+                                   "(V8 DEPS' own pin for this tree)",
+                        "reason": "the fallback's abseil is a different "
+                                  "revision whose absl::Mutex lacks the "
+                                  "lowercase lock()/unlock()/try_lock() that "
+                                  "this revision's src/base/platform/mutex.cc "
+                                  "calls",
+                    },
                 },
                 "overlaid_from_source_image": {
                     "paths": [] if args.no_overlay_image else list(IMAGE_OVERLAY_PATHS),
