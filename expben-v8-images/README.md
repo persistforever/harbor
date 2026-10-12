@@ -34,15 +34,7 @@ docker pull ghcr.io/persistforever/v8evo-1b85c84da74a-d10:r1
 
 ## 拉取
 
-### 1) 从 Harbor（内网，**不需要任何凭据**）
-
-`security` 项目是 public 的，内网机器直接拉：
-
-```bash
-docker pull hub.i.basemind.com/security/v8evo-15a72141745c-d01:r1
-```
-
-### 2) 从 GHCR（私有包，需要只读 token）
+### 1) 从 GHCR（私有包，需要只读 token）
 
 ```bash
 echo "$GHCR_TOKEN" | docker login ghcr.io -u persistforever --password-stdin
