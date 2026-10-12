@@ -20,7 +20,7 @@ import tarfile
 from pathlib import Path
 from typing import Any
 
-from task_prompt import render_readme
+from task_prompt import normalize_prompt, render_readme, replace_patch_section
 
 
 DEFAULT_BUILD_JOBS = 16
@@ -66,7 +66,13 @@ REQUIRED_SOURCE_DEPS = (
     #   source dependency bundle is incomplete: gni/cluster_build.gni
     # Check for a file that exists across every revision instead.
     "gni/v8.gni",
-    "third_party/libc++/src/include/__algorithm/ranges_shift_left.h",
+    # __algorithm/shift_left.h, not ranges_shift_left.h: the ranges version
+    # exists only up to LLVM 21 -- upstream removed it when P2440 landed, so
+    # requiring it rejected every problem whose DEPS pins LLVM 22 (V8 ~14.2,
+    # 2025-09) with "source dependency bundle is incomplete".  The plain
+    # shift_left.h is present in both generations and serves the same purpose
+    # here: proving the libc++ headers shipped with the toolchain are present.
+    "third_party/libc++/src/include/__algorithm/shift_left.h",
     "third_party/llvm-libc/src/shared/fp_bits.h",
     "third_party/llvm-build/Release+Asserts/bin/clang++",
     "third_party/rust-toolchain/VERSION",
@@ -142,8 +148,27 @@ def require_dir(path: Path, description: str) -> Path:
 def create_source_deps_archive(source: Path, context: Path) -> Path:
     """Create one sequential context file instead of millions of JFS writes."""
 
+    # Absent, not fatal.  two of the fifteen entries are revision-coupled
+    # trees that a given problem's inputs may legitimately not carry:
+    # third_party/rust is version-namespaced (see IMAGE_OVERLAY_PATHS) and is
+    # dropped by some public images, and the fallback checkout does not have it
+    # either.  Aborting here would reject a bundle that is already proven
+    # buildable -- the source stage ships exactly such a tree (its 4.2 GiB
+    # archive carries no third_party/rust) and compiled release, release-asan
+    # and coverage from it.  The evolved stage re-tars the same directory, so
+    # the same bundle must not be rejected here on the way through.
+    # REQUIRED_SOURCE_DEPS below still enforces the files that actually have to
+    # be there, and tar exits non-zero on any path it cannot find, so the guard
+    # against a genuinely incomplete bundle is unchanged.
+    present: list[str] = []
     for relative in SOURCE_DEPS:
-        require_dir(source / relative, f"source dependency {relative}")
+        if (source / relative).is_dir():
+            present.append(relative)
+        else:
+            print(
+                f"    WARN: source dependency {relative} is absent from "
+                f"{source}; it will not go into the archive"
+            )
     archive = context / "build-inputs" / "source-deps.tar"
     archive.parent.mkdir(parents=True)
     command = [
@@ -158,7 +183,7 @@ def create_source_deps_archive(source: Path, context: Path) -> Path:
         "--exclude=*/__pycache__",
         "-C",
         str(source),
-        *SOURCE_DEPS,
+        *present,
     ]
     subprocess.run(command, check=True)
     with tarfile.open(archive) as stream:
@@ -207,7 +232,21 @@ def dockerfile_for(
         "/rlenv/source/v8/buildtools",
         "/rlenv/source/v8/third_party/libc++",
         "/rlenv/source/v8/third_party/libc++abi",
-        "/rlenv/source/v8/third_party/llvm-libc",
+        # third_party/llvm-libc is deliberately NOT cleaned, unlike every other
+        # member of SOURCE_DEPS.  The bundle is a partial overlay for this one
+        # tree: it carries only src/ (the LLVM 22 half, from
+        # third_party/llvm-libc/src in the manifest), while BUILD.gn and
+        # README.v8 come from the V8 checkout itself and ride in through the
+        # source stage's tree.  The base image ships that merged pair --
+        # `ls third_party/llvm-libc` there is BUILD.gn, README.md, README.v8,
+        # src -- so deleting it and restoring src/ alone drops BUILD.gn and gn
+        # aborts at the first load with
+        #   ERROR at //buildtools/third_party/libc++/BUILD.gn:228:14:
+        #   Unable to load "/rlenv/source/v8/third_party/llvm-libc/BUILD.gn"
+        # Leaving the base copy in place lets ADD merge src/ on top and
+        # reproduces exactly the source image's tree.  libc++/libc++abi are
+        # safe to clean because their BUILD.gn lives under buildtools/, which
+        # the bundle does supply.
         "/rlenv/source/v8/third_party/llvm-build",
         "/rlenv/source/v8/third_party/rust",
         "/rlenv/source/v8/third_party/rust-toolchain",
@@ -346,7 +385,7 @@ RUN set -eux; \\
     rm -rf \\
 {cleanup_lines}
 ADD build-inputs/source-deps.tar /rlenv/source/v8/
-COPY --from=pristine /rlenv/source/v8/gni/v8.gni /tmp/phase2-base-v8.gni
+COPY gni-base/v8.gni /tmp/phase2-base-v8.gni
 COPY build-inputs/gn /tmp/phase2-build/gn
 COPY build-inputs/gn-args/ /tmp/phase2-gn-args/
 COPY build-inputs/pkg-config-wrapper.sh /tmp/phase2-build/pkg-config
@@ -557,6 +596,22 @@ def main() -> None:
     shutil.copy2(gn_path, context / "build-inputs" / "gn")
     shutil.copytree(gn_args, context / "build-inputs" / "gn-args", symlinks=False)
     shutil.copy2(pkg_config, context / "build-inputs" / "pkg-config-wrapper.sh")
+    # The builder restores gni/v8.gni from this snapshot before applying the
+    # phase-two patch: the anchor injection rjob_compile_d8.sh does is only
+    # idempotent when it starts from the pristine file.  That snapshot used to
+    # come from the BASE image
+    #   COPY --from=pristine /rlenv/source/v8/gni/v8.gni /tmp/phase2-base-v8.gni
+    # which requires the base image to ship gni/.  --stage source prunes it on
+    # purpose (the builder re-supplies it from source-deps.tar), so every
+    # evolved build whose base is a pipeline-produced source image died there
+    # with "stat rlenv/source/v8/gni/v8.gni: file does not exist" -- including
+    # --stage both, which chains the two.  Carry the file in the context
+    # instead: it is the same revision's file either way, because the archive
+    # is built from the problem's own vulnerable checkout and
+    # REQUIRED_SOURCE_DEPS already guarantees gni/v8.gni is present in it.
+    gni_base = context / "gni-base"
+    gni_base.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_deps / "gni" / "v8.gni", gni_base / "v8.gni")
     (context / "scripts").mkdir(parents=True, exist_ok=True)
     for name, path in required.items():
         target = context / "inputs" / name
@@ -574,6 +629,31 @@ def main() -> None:
         # `patch --forward` application a no-op, leaving the vulnerable source
         # exactly as the test-set image ships it.
         (context / "inputs" / "phase2.patch.diff").write_bytes(b"")
+    else:
+        # The evolved prompt is the one inputs/ file that must not ship
+        # verbatim.  The upstream prompt's Bug Description names the ORIGINAL
+        # bug ("V8 vulnerability task generated from CR 15a72141745c: [maglev]
+        # SBXCHECK slot indices are in bounds") and phase two has since moved
+        # the vulnerable code, so shipping it points the agent at a bug that is
+        # no longer in the tree.  task_prompt.py has always had the two
+        # rewrites for this -- blank_bug_description and replace_patch_section,
+        # composed as normalize_prompt -- but nothing ever called them, so the
+        # materials went out raw and check_task_files.py failed the final stage
+        # of every evolved build with
+        #   [task-files] FAIL: prompt's Bug Description is not blank
+        # after the 46-minute compile.  Do it here, where the shipped patch is
+        # already known: /testbed/patch.diff is evolved-vuln-to-fixed, so the
+        # prompt's Patch Diff section is pinned to that file.
+        prompt_target = context / "inputs" / "prompt"
+        rewrites = prompt_target.read_text(encoding="utf-8")
+        rewrites = normalize_prompt(rewrites)
+        replaced = replace_patch_section(
+            rewrites,
+            required["evolved-vuln-to-fixed.patch.diff"].read_text(encoding="utf-8"),
+        )
+        if replaced is not None:
+            rewrites = replaced
+        prompt_target.write_text(rewrites, encoding="utf-8")
     for script in (
         "rjob_compile_d8.sh",
         "check_task_files.py",

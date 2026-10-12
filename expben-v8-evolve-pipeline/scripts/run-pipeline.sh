@@ -23,6 +23,7 @@ source "$ROOT/config/pipeline.env"
 
 STAGE=baseline
 ONLY=
+TASK=
 LIMIT=
 PUSH=0
 DRY_RUN=0
@@ -41,6 +42,10 @@ Options:
                                   source: V8 checkout -> the per-problem source image
                                   (default baseline)
   --only PROBLEM_ID               run a single problem
+  --task SUBSTRING                run only the rows whose task_dir contains SUBSTRING.
+                                  A problem has one row per evolution direction (d01,
+                                  d02, ...), all sharing one context directory, so
+                                  combine with --only to build one direction at a time.
   --limit N                       run at most N problems
   --configs a,b,c                 d8 configs to build (default release,release-asan,coverage)
   --jobs N                        ninja parallelism inside the container
@@ -58,6 +63,7 @@ while (($#)); do
   case "$1" in
     --stage) STAGE="${2:?}"; shift 2 ;;
     --only) ONLY="${2:?}"; shift 2 ;;
+    --task) TASK="${2:?}"; shift 2 ;;
     --limit) LIMIT="${2:?}"; shift 2 ;;
     --configs) CONFIGS="${2:?}"; shift 2 ;;
     --jobs) JOBS="${2:?}"; shift 2 ;;
@@ -157,9 +163,34 @@ print(json.load(open('$ROOT/config/problem-commits.json')).get('$problem', {}).g
     --keep-context "${PUSH_ARGS[@]}"
 }
 
+# Resolve the phase-two input dir for one row.  PHASE2_INPUTS_ROOT may be
+# organised either per task (one dir per direction: <task_dir>/) or per problem
+# (<problem>/, the original layout, where all five directions of a problem share
+# one bundle).  Per-task wins because a problem has five distinct phase-two
+# patches; the per-problem dir can only ever describe one of them.
+resolve_phase2_inputs() {
+  # resolve_phase2_inputs <problem> <task_dir> <evolved_image>
+  local problem="$1" task_dir="$2" evolved_image="$3"
+  if [[ -n "$PHASE2_INPUTS_ROOT" ]]; then
+    if [[ -n "$task_dir" && -d "$PHASE2_INPUTS_ROOT/$task_dir" ]]; then
+      printf '%s\n' "$PHASE2_INPUTS_ROOT/$task_dir"
+      return 0
+    fi
+    if [[ -d "$PHASE2_INPUTS_ROOT/$problem" ]]; then
+      printf '%s\n' "$PHASE2_INPUTS_ROOT/$problem"
+      return 0
+    fi
+  fi
+  find_phase2_inputs "$problem" "$evolved_image"
+}
+
 run_stage() {
-  local problem="$1" mode="$2" ref="$3" base_ref="$4" input="${5:-}"
-  local ctx="$CONTEXT_ROOT/$problem-$mode"
+  local problem="$1" mode="$2" ref="$3" base_ref="$4" input="${5:-}" slug="${6:-}"
+  # One context directory per row, not per problem: a problem carries five tasks
+  # (evolution directions) with five different phase-two patches, and they would
+  # otherwise overwrite each other's context -- and, with it, the compile cache
+  # key -- on every run.
+  local ctx="$CONTEXT_ROOT/${slug:-$problem}-$mode"
   local dest="$REGISTRY/$ref"
   echo "[$mode] $problem -> $dest"
   if ((DRY_RUN)); then
@@ -198,21 +229,18 @@ fi
 while IFS=$'\t' read -r problem task_dir source_ref baseline_ref evolved_ref evolved_image; do
   [[ "$problem" == "problem_id" || -z "$problem" ]] && continue
   [[ -n "$ONLY" && "$problem" != "$ONLY" ]] && continue
+  [[ -n "$TASK" && "$task_dir" != *"$TASK"* ]] && continue
   if [[ -n "$LIMIT" ]] && (( count >= LIMIT )); then break; fi
 
   if [[ "$STAGE" == baseline || "$STAGE" == both ]]; then
     run_stage "$problem" baseline "$baseline_ref" "$source_ref"
   fi
   if [[ "$STAGE" == evolved || "$STAGE" == both ]]; then
-    if [[ -n "$PHASE2_INPUTS_ROOT" && -d "$PHASE2_INPUTS_ROOT/$problem" ]]; then
-      input="$PHASE2_INPUTS_ROOT/$problem"
-    else
-      input="$(find_phase2_inputs "$problem" "$evolved_image")" || {
-        echo "[evolved] no phase-two inputs found for $problem (wanted $evolved_image)" >&2
-        continue
-      }
-    fi
-    run_stage "$problem" evolved "$evolved_ref" "$source_ref" "$input"
+    input="$(resolve_phase2_inputs "$problem" "$task_dir" "$evolved_image")" || {
+      echo "[evolved] no phase-two inputs found for $problem/$task_dir (wanted $evolved_image)" >&2
+      continue
+    }
+    run_stage "$problem" evolved "$evolved_ref" "$source_ref" "$input" "$task_dir"
   fi
   ((count++)) || true
 done < "${PROBLEMS_FILE:-$ROOT/config/problems.tsv}"

@@ -1,6 +1,6 @@
 ---
 name: expben-v8-evolve-build
-description: Build ExploitBench V8 images locally from the official test-set wrapper images — first the pre-evolve (baseline) image, then the evolved one. Use when asked to rebuild, reproduce, verify or re-derive a cybergen_v8_cr_* image (especially a t2t1-*-compiled-v1 evolved image) on this host, when a build context has to be regenerated from build-inputs, or when explaining why a rebuilt V8 image does or does not match the published one.
+description: Build ExploitBench V8 images locally from the official test-set wrapper images — first the pre-evolve (baseline) image, then one evolved image per evolution direction. Use when asked to rebuild, reproduce, verify or re-derive a cybergen_v8_cr_* image (especially a t2t1-*-compiled-v1 evolved image) on this host, when a build context has to be regenerated from build-inputs, or when explaining why a rebuilt V8 image does or does not match the published one. Start at "Fast path" for the command sequence that builds N directions with the fewest surprises.
 ---
 
 # ExploitBench V8 evolve build
@@ -16,6 +16,76 @@ ExploitBench test-set image   (…:v3-official-16cap)
 
 Implementation lives in `../../expben-v8-evolve-pipeline/` (sibling of this
 skill's parent). Drive everything through its `scripts/run-pipeline.sh`.
+
+## Fast path — build N directions
+
+**Scripts in `scripts/` are the fast path; the prose below is the reasoning.**
+
+| script | what |
+|---|---|
+| `stage-phase2-inputs.py` | a dataset bundle (`tasks/<task_dir>/inputs/`) → the per-task `$PHASE2_INPUTS_ROOT/<task_dir>/` layout, deriving the one file the bundle lacks |
+| `run-evolved-batch.sh` | build every unbuilt (or unverified) row of a `problems.tsv`, one at a time, verifying each — idempotent, so re-running resumes |
+| `verify-evolved.sh` | one image against its inputs and its source image; 15 s; the check that catches a silently wrong side |
+
+`references/pitfalls-and-smoke.md` has the rest of what the 2026-10 run taught:
+the worked 2-problem/10-direction example with timings and image ids, the `d8`
+probe gotcha, the host smoke recipe, the host assumptions that differ from the
+pipeline's, and the GHCR publishing convention.
+
+```bash
+cd ../../expben-v8-evolve-pipeline
+SKILL=../skills/expben-v8-evolve-build                     # this skill
+
+# 0. stage the phase-two inputs, one directory per direction.
+#    (Bundles arrive as a dataset: <dataset>/tasks/<task_dir>/inputs/.)
+python3 "$SKILL/scripts/stage-phase2-inputs.py" \
+  --bundles <dataset-with-tasks-dir> --selection <dataset>/selection.json \
+  --output /data/temporal/phase2-inputs-local --overwrite
+export PHASE2_INPUTS_ROOT=/data/temporal/phase2-inputs-local
+
+# 1. seconds: does each direction's patch apply to its pristine vuln tree?
+mkdir -p /data/temporal/patchcheck
+while read -r prob task _; do
+  [ "$prob" = problem_id ] && continue
+  tree=/data/temporal/patchcheck/$prob
+  [ -d "$tree/src" ] || { mkdir -p "$tree"; git -C /data/temporal/v8 archive \
+      "$(python3 -c "import json;print(json.load(open('config/problem-commits.json'))['$prob']['vulnerable_commit'])")" \
+      | tar -x -C "$tree"; }
+  patch -d "$tree" -p1 --dry-run --forward \
+    < "$PHASE2_INPUTS_ROOT/$task/phase2.patch.diff" >/dev/null && echo "OK  $task" || echo "BAD $task"
+done < <(tail -n +2 <problems.tsv>)
+
+# 2. seconds: is the row, tag, context dir and input dir what you think?
+scripts/run-pipeline.sh --stage evolved --only <problem> --task <task_dir> \
+  --problems-file <problems.tsv> --configs release,release-asan,coverage \
+  --jobs 16 --dry-run
+
+# 3. the long part: ~40 min per direction, sequential, verify after each
+"$SKILL/scripts/run-evolved-batch.sh" --problems-file <problems.tsv> --jobs 16
+```
+
+**Prerequisites, all of which fail fast if missing:** per-problem
+`build-inputs` (`scripts/bootstrap.sh` reports them), the source image for the
+problem in the local daemon (`--stage source` builds it, ~90 min, and it compiles
+*both* sides × 3 configs), `PHASE2_INPUTS_ROOT` staged, and the V8 checkout
+holding each problem's `vulnerable_commit` object.
+
+**Measured on this host** (`--configs release,release-asan,coverage --jobs 16`,
+one direction = 3 configs of one side):
+
+| stage | V8 14.2 problem | V8 12.8 problem |
+|---|---|---|
+| `--stage source` (both sides) | 89m38s | 76m10s |
+| one evolved direction | ~44 min | ~36 min |
+| context generation | ~2–4 min (3.6 GiB tar) | same |
+| verify one image | 15 s | 15 s |
+
+Shipped 10 directions (2 problems × 5) in ~6 h of wall clock, unattended.
+
+**Do not run two builds at once.** 16 cores / 61 GiB: `--jobs 16` already uses
+the whole machine, and the asan link steps are the peaks. `BUILD_JOBS=64` (the
+`pipeline.env` default) is 64 concurrent clang processes ≈ 64 GiB — it does not
+fit here, which is why the batch script clamps to 16.
 
 ## Read this before touching anything
 
@@ -49,6 +119,28 @@ an old V8 revision build with the newer injected toolchain:
 Baseline mode is the *same* context with an **empty** phase-two patch, so the
 pristine vulnerable source is compiled. That is the whole difference between the
 two stages.
+
+### Revisions older than 2025 also need a `third_party/llvm-libc/BUILD.gn`
+
+The injected libc++ is a 2025 one, and `buildtools/third_party/libc++/BUILD.gn`
+depends on `//third_party/llvm-libc:llvm-libc-shared` (LLVM 22's `charconv`
+reaches into llvm-libc's shared headers). `third_party/llvm-libc` is a **V8 2025
+fork** — a V8 12.8 (2024-06) checkout has no such directory, and `gn gen` dies
+before compiling anything:
+
+```
+ERROR at //buildtools/third_party/libc++/BUILD.gn:228:14:
+Unable to load "…/third_party/llvm-libc/BUILD.gn".
+```
+
+`prepare_problem_build_inputs.py::write_llvm_libc_build_gn()` writes the two-line
+group from `chromium-compat-a6fc5852/third_party/llvm-libc/BUILD.gn.2025` —
+**but only when `git cat-file -e <vulnerable>:third_party/llvm-libc/BUILD.gn`
+says the revision has none.** The 2025 revisions ship the real fork inside their
+own tarball, and `ADD source-deps.tar` lands on top of that tree, so a generic
+file must never overwrite it. Any problem whose V8 predates 2025 needs this;
+there is no way to see it from the revision number alone, and `--stage source`
+hits it first.
 
 ## Bootstrap a clean host (cache, else fetch)
 
@@ -183,9 +275,19 @@ scripts/run-pipeline.sh --stage evolved  --only cybergen_v8_cr_489887978dfb
 scripts/run-pipeline.sh --stage both --dry-run          # plan only, all problems
 ```
 
-Flags that matter: `--configs release` (fast single-config smoke),
-`--jobs N`, `--overwrite` (replace an existing context), `--push`,
-`--registry <ns>`.
+Flags that matter: `--task SUBSTRING` (run one evolution direction),
+`--problems-file PATH` (keep one-off lists out of `config/problems.tsv`),
+`--configs release` (fast single-config smoke), `--jobs N`, `--overwrite`
+(replace an existing context), `--dry-run` (print the resolved row, tag,
+context and input directory), `--push`, `--registry <ns>`.
+
+**Rows are per direction, but a context used to be per problem.** A problem has
+one row per evolution direction (d01, d02, …) with a different phase-two patch
+each, and they all wrote `$CONTEXT_ROOT/<problem>-evolved` — whichever ran last
+won. Both are per task now: `$CONTEXT_ROOT/<task_dir>-evolved`, and
+`--task` is what makes one row at a time expressible (`--only` matches the
+problem only). Combine them: `--only <problem> --task <task_dir>` runs exactly
+one row.
 
 Inspect a finished image without building again:
 
@@ -278,10 +380,22 @@ correct — but the dry-run must still run somewhere the surrounding tree exists
   `coverage` present but still the *test-set image's originals*. All five
   directories exist either way — check timestamps or the image manifest before
   claiming a full baseline.
-- **Phase-two inputs are auto-discovered by destination tag** under
-  `$JOBS_ROOT/*/*/kaniko-contexts/<problem>/`. If a problem has contexts for
-  several directions, the wrong one silently becomes "the evolved image".
-  Confirm the resolved `inputs=` path in `--dry-run` matches the intended tag.
+- **Phase-two inputs resolve per task first, then per problem, then by search.**
+  `PHASE2_INPUTS_ROOT/<task_dir>` wins, then `PHASE2_INPUTS_ROOT/<problem>`
+  (the historical layout, one bundle per problem — which can only describe one
+  of its five directions), and only if neither exists does it grep
+  `$JOBS_ROOT/*/*/kaniko-contexts/<problem>/` for the destination tag. **This
+  host has no `$JOBS_ROOT`** (`/mnt/ws-jfs/...` is not mounted), so
+  `PHASE2_INPUTS_ROOT` must be set explicitly or the evolved stage finds
+  nothing. Whichever path it takes, confirm the resolved `inputs=` line in
+  `--dry-run`: a per-problem directory silently supplies the wrong direction's
+  patch, and the build succeeds.
+- **A bundle is one file short.** `patch_locations.json` is absent from the
+  per-task bundles; `prepare_context.py` requires it, so `stage-phase2-inputs.py`
+  derives it with the vendored parser. Derive it from
+  `evolved-vuln-to-fixed.patch.diff` (= the shipped `/testbed/patch.diff`), not
+  from the phase-two patch: measured byte-identical to what cybergen itself
+  produced for the one direction whose bundle did carry the file.
 - **Legacy builder, not BuildKit.** This host has no `buildx`; the contexts'
   `# syntax=docker/dockerfile:1` line is stripped into `Dockerfile.legacy` and
   `DOCKER_BUILDKIT=0` is set. Dockerfiles must therefore stay within the legacy
@@ -302,11 +416,23 @@ correct — but the dry-run must still run somewhere the surrounding tree exists
 
 ## Cost, honestly
 
-One problem, one configuration, `--jobs 48`: **~40 min**, of which roughly half
-is the 3.4 GiB context upload plus tar unpack. Each generated context is 3.4 GiB
-and each image ~10 GiB on disk. Ten problems × two stages × three configs is an
-overnight run, not an interactive one — go one problem at a time and watch
-`/data` headroom.
+The per-direction numbers are in the Fast path table (**~40 min for three
+configs of one side**, ~90 min for a source image's two sides). Each generated
+context is ~3.6 GiB and each image ~16 GiB on disk, against 493 GiB total here —
+ten directions is ~160 GiB, so watch headroom and delete a context once its
+image is tagged and verified. Ten problems × two stages × five configurations is
+an overnight run, not an interactive one; go one direction at a time.
+
+Two things make an attempt cheaper to abandon:
+
+- a patch that does not apply fails **~2 minutes** in (`patch --forward` under
+  `set -Eeuo pipefail`), not after 45 minutes — so a bad bundle costs minutes,
+  which is why step 1 of the Fast path is worth its seconds;
+- the compile is a `builder` stage and the prompt/README are only `COPY`ed in
+  the final stage, so re-shipping prose is a re-tag, not a rebuild:
+  `scripts/build-context.sh --context <ctx> --destination <tag> --keep-context`
+  takes 30 seconds. Do **not** re-drive `run-pipeline.sh` for that — it
+  regenerates the context, re-tars 3.6 GiB, and throws the compile cache away.
 
 ## Keeping this honest
 

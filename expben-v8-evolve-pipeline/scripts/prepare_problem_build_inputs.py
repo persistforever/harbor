@@ -61,6 +61,22 @@ DEFAULT_SIMDUTF = Path("/data/temporal/simdutf-amalgam/chromium-a6fc5852")
 DEFAULT_PARTITION_ALLOC = Path("/data/temporal/partition-alloc/chromium-a6fc5852")
 DEFAULT_HIGHWAY = Path("/data/temporal/highway-84379d1c")
 DEFAULT_ABSEIL = Path("/data/temporal/abseil-cpp-c3655ab8")
+
+# The toolchain and libc++ this revision's DEPS pins.  Both are a *generation*
+# ahead of the shared fallback (LLVM 22 vs LLVM 18), and both are reachable
+# from this network even though the two hostnames their DEPS entries name are
+# not -- see the block above VENDORED_THIRD_PARTY for how.
+DEFAULT_LLVM_BUILD = Path("/data/temporal/llvm-build-llvmorg-22")
+DEFAULT_LLVM_PROJECT = Path("/data/temporal/llvm-project-4d4cb757")
+DEFAULT_LLVM_LIBC = DEFAULT_LLVM_PROJECT / "libc"
+
+# Two DEPS-pinned upstream repos the injected bundle does not carry at all.
+# Unlike llvm-build/libc++ above, these are not a *generation* problem: the
+# fallback has never had them, at any revision.  The V8 checkout tracks only
+# `third_party/<name>/{BUILD.gn,OWNERS,README.v8}`; the sources live in a
+# separate repo that gclient materialises into src/.  See the table entry.
+DEFAULT_DRAGONBOX = Path("/data/temporal/dragonbox-6c7c925b")
+DEFAULT_FAST_FLOAT = Path("/data/temporal/fast-float-cb1d42aa")
 HARDLINK_FROM_FALLBACK = ("build", "buildtools", "third_party", "tools")
 GIT_EXPORT = ("gni", "test")
 # Chromium-only directories V8's BUILD.gn reaches for that the shared fallback
@@ -114,13 +130,73 @@ GIT_EXPORT = ("gni", "test")
 #                               A missing directory would at least fail at
 #                               `gn gen`; a stale one only fails per-file, so
 #                               it is the more expensive kind of drift.
+#
+# The last four are one problem, not four: this revision's whole *toolchain
+# generation* is LLVM 22 while the shared fallback's is LLVM 18, and the source
+# is written against the former.
+#
+#   third_party/llvm-build/Release+Asserts
+#                               DEPS: `dep_type: gcs`, bucket
+#                               chromium-browser-clang, object
+#                               Linux_x64/clang-llvmorg-22-init-8940-g4d4cb757-1
+#                               .tar.xz (53 MB).  DEPS serves it from
+#                               commondatastorage.googleapis.com, which this
+#                               network blocks -- but the same bucket answers on
+#                               storage.googleapis.com with a path-style URL, so
+#                               it is fetchable after all.  With the LLVM 18
+#                               fallback the compile dies immediately:
+#                               -> ../../v8/src/utils/memcopy.h:355:10: error:
+#                                  no member named 'atomic_ref' in namespace
+#                                  'std'   (C++20 atomic_ref landed in LLVM 19)
+#                                  ... and every one of the 16 clang processes
+#                                  parks on that same header, so a -k 0 run
+#                                  spins for hours without producing an object.
+#
+#   third_party/libc++/src      DEPS pins the LLVM 22 commit via
+#   third_party/libc++abi/src   chromium.googlesource.com's llvm-project
+#   third_party/libunwind/src   subtree mirror, whose shas do not exist
+#                               upstream (api.github.com: 422).  But the
+#                               toolchain package above names the *upstream*
+#                               revision it was built at -- the DEPS pin's
+#                               suffix `g4d4cb757` -- so the matching sources
+#                               are fetchable from github.com/llvm/llvm-project
+#                               at 4d4cb757f94470b95458fcbe3b88332b212feeee.
+#                               The fallback's libc++ is LLVM 18, which has no
+#                               include/__atomic/atomic_ref.h at all: a header
+#                               the source includes.  Mismatched libc++ also
+#                               silently changes the ABI, so it must move in
+#                               lockstep with the compiler.
+#
+# These four are *replaced* rather than merged: a plain copy over the fallback
+# would leave upstream-deleted files (src/tz.cpp, src/legacy_pointer_safety.cpp)
+# behind to be included by their new counterparts.
 VENDORED_THIRD_PARTY = (
-    # (cache dir stem, destination under third_party/, files that must exist)
-    ("simdutf", "simdutf", ("simdutf.h", "simdutf.cpp", "BUILD.gn")),
-    ("partition_alloc", "partition_alloc", ("BUILD.gn", "partition_alloc.gni")),
-    ("highway", "highway/src", ("hwy", "hwy.gni")),
+    # (cache dir stem, destination under third_party/,
+    #  files that must exist, replace the destination wholesale)
+    ("simdutf", "simdutf", ("simdutf.h", "simdutf.cpp", "BUILD.gn"), False),
+    ("partition_alloc", "partition_alloc", ("BUILD.gn", "partition_alloc.gni"), False),
+    ("highway", "highway/src", ("hwy", "hwy.gni"), False),
     ("abseil", "abseil-cpp",
-     ("BUILD.gn", "absl.gni", "absl/synchronization/mutex.h")),
+     ("BUILD.gn", "absl.gni", "absl/synchronization/mutex.h"), False),
+    # Header-only source_sets whose sources are DEPS entries of their own
+    # (`jk-jeon/dragonbox@6c7c925b`, `fastfloat/fast_float@cb1d42aa`).  gn gen
+    # does not check that an include_dirs path exists, so a missing tree costs
+    # nothing until the first .cc that includes the header dies with a fatal
+    # "file not found" -- minutes into a build, one tree at a time.  That is
+    # why the whole tree is dropped in rather than just the header: no reason
+    # to find out the hard way which of its siblings dragonbox.h pulls in.
+    ("dragonbox", "dragonbox/src",
+     ("include/dragonbox/dragonbox.h",), True),
+    ("fast_float", "fast_float/src",
+     ("include/fast_float/fast_float.h",), True),
+    ("llvm_build", "llvm-build/Release+Asserts",
+     ("bin/clang++", "bin/llvm-ar", "cr_build_revision"), True),
+    ("libcxx", "libc++/src",
+     ("include/__config", "include/__atomic/atomic_ref.h", "src/CMakeLists.txt"), True),
+    ("libcxxabi", "libc++abi/src", ("src/CMakeLists.txt", "src/cxa_demangle.cpp"), True),
+    ("libunwind", "libunwind/src", ("src/UnwindLevel1.c", "src/libunwind.cpp"), True),
+    ("llvm_libc", "llvm-libc/src",
+     ("shared/fp_bits.h", "src/__support/FPUtil/FPBits.h"), True),
 )
 # The cache directory each stem defaults to (`abseil` is not the directory
 # name, so the stem cannot be derived from the destination).
@@ -129,6 +205,13 @@ VENDORED_DEFAULTS = {
     "partition_alloc": DEFAULT_PARTITION_ALLOC,
     "highway": DEFAULT_HIGHWAY,
     "abseil": DEFAULT_ABSEIL,
+    "dragonbox": DEFAULT_DRAGONBOX,
+    "fast_float": DEFAULT_FAST_FLOAT,
+    "llvm_build": DEFAULT_LLVM_BUILD,
+    "libcxx": DEFAULT_LLVM_PROJECT / "libcxx",
+    "libcxxabi": DEFAULT_LLVM_PROJECT / "libcxxabi",
+    "libunwind": DEFAULT_LLVM_PROJECT / "libunwind",
+    "llvm_libc": DEFAULT_LLVM_LIBC,
 }
 
 # build/ files the injected bundle is missing but a vendored third_party tree
@@ -139,8 +222,39 @@ VENDORED_DEFAULTS = {
 #     Unable to load "//build/config/avx512.gni"
 # avx512.gni is only `declare_args() { allow_avx512 = true }`, so installing the
 # real file keeps the vendored BUILD.gn byte-for-byte Chromium's.
+#
+# The two libc++ files are the generated-config-site pair, and they belong to
+# the *toolchain* replacement documented above VENDORED_THIRD_PARTY rather than
+# to the vendored trees: buildtools/third_party/libc++ is what `-I` puts on the
+# include path for libc, and __config_site is the file LLVM 22's <__config>
+# expects to have already defined its boolean feature macros.
+#
+# Chromium's 2024 pair predates the LLVM 22 rename (`_LIBCPP_HAS_NO_LOCALIZATION`
+# negated-only -> the positive `_LIBCPP_HAS_LOCALIZATION` and friends, which
+# upstream's __config_site.in now emits with `#cmakedefine01`, i.e. always
+# defined).  In a `#if` an undefined macro reads as 0, and upstream gates whole
+# headers on these:
+#     #if _LIBCPP_HAS_LOCALIZATION          // __ostream/basic_ostream.h
+# so the 2024 file silently compiled libc++ without any of <ostream>'s
+# operator<< overloads:
+#     ../../v8/src/common/globals.h:799:13: error: invalid operands to binary
+#     expression ('std::ostream' and 'const char *')
+#         return os << LanguageMode2String(mode);
+# Nothing fails at `gn gen` -- the headers exist, the macros are simply wrong.
+#
+# __assertion_handler rides along because LLVM 22 calls it with different
+# expectations than LLVM 18 (`__builtin_trap` in official builds).
 DEFAULT_CHROMIUM_COMPAT = Path("/data/temporal/chromium-compat-a6fc5852")
-COMPAT_BUILD_FILES = ("build/config/avx512.gni",)
+COMPAT_BUILD_FILES = (
+    "build/config/avx512.gni",
+    "buildtools/third_party/libc++/__config_site",
+    "buildtools/third_party/libc++/__assertion_handler",
+)
+
+# Chromium's third_party/llvm-libc/BUILD.gn, for the revisions that carry no
+# such directory themselves (V8 before the llvm-libc fork landed in its own
+# repository, i.e. the 2024 revisions).  See write_llvm_libc_build_gn().
+COMPAT_LLVM_LIBC_BUILD = "third_party/llvm-libc/BUILD.gn.2025"
 
 # Configs the injected build/ predates.  A V8 revision from 2025 puts
 # //build/config/compiler:no_exit_time_destructors in 25 targets' configs lists
@@ -157,6 +271,99 @@ COMPAT_BUILD_FRAGMENTS = (
     ("build/config/compiler/BUILD.gn",
      "fragments/build/config/compiler/no_exit_time_destructors.gn",
      "no_exit_time_destructors"),
+)
+
+# Three files in the injected build/, buildtools/ and tools/ that name the LLVM
+# 18 toolchain in as many ways.  They are the other half of the toolchain
+# replacement documented above VENDORED_THIRD_PARTY: installing LLVM 22 without
+# them makes `gn gen` fail before a single file compiles.
+#
+#   tools/clang/scripts/update.py   build/config/compiler/BUILD.gn runs
+#                                   `update.py --print-revision
+#                                   --verify-version=$clang_version` through
+#                                   exec_script, and --print-revision *asserts*
+#                                   that CLANG_REVISION + CLANG_SUB_REVISION
+#                                   equals the toolchain's cr_build_revision
+#                                   stamp:
+#                                     The expected clang version is
+#                                     llvmorg-18-init-17730-gf670112a-3 but the
+#                                     actual version is
+#                                     llvmorg-22-init-8940-g4d4cb757-1
+#                                   It also makes CR_CLANG_REVISION truthful --
+#                                   that define is what the compile command
+#                                   lines carry.
+#   build/toolchain/toolchain.gni   clang_version is the value passed to
+#                                   --verify-version; update.py compares it to
+#                                   its own RELEASE_VERSION and refuses on a
+#                                   mismatch ("clang_version in
+#                                   build/toolchain/toolchain.gni is likely
+#                                   outdated").  The two must move together.
+#   buildtools/third_party/libc++/BUILD.gn
+#                                   buildtools' 2024 libc++ source list matches
+#                                   the fallback's libc++ exactly (0 missing) and
+#                                   LLVM 22's in all but one entry: upstream
+#                                   removed src/legacy_pointer_safety.cpp and
+#                                   added src/expected.cpp.  Left alone, ninja
+#                                   dies on the first and std::expected is
+#                                   missing symbols at link time.
+#
+# Substitution rather than a fragment because these are single tokens inside
+# files that are otherwise correct.  Idempotent: a tree that already carries
+# the new text is left alone, and one that has neither is an error rather than
+# a silent no-op.
+COMPAT_BUILD_SUBSTITUTIONS = (
+    # (path, old text, new text)
+    ("tools/clang/scripts/update.py",
+     "CLANG_REVISION = 'llvmorg-18-init-17730-gf670112a'",
+     "CLANG_REVISION = 'llvmorg-22-init-8940-g4d4cb757'"),
+    ("tools/clang/scripts/update.py",
+     "CLANG_SUB_REVISION = 3",
+     "CLANG_SUB_REVISION = 1"),
+    ("tools/clang/scripts/update.py",
+     "RELEASE_VERSION = '18'",
+     "RELEASE_VERSION = '22'"),
+    ("build/toolchain/toolchain.gni",
+     'clang_version = "18"',
+     'clang_version = "22"'),
+    ("buildtools/third_party/libc++/BUILD.gn",
+     '"//third_party/libc++/src/src/legacy_pointer_safety.cpp",',
+     '"//third_party/libc++/src/src/expected.cpp",'),
+    # LLVM 22's libc++ sources use C++23 (std::string::resize_and_overwrite in
+    # src/filesystem/format_string.h, std::bad_expected_access in
+    # src/expected.cpp), and Chromium's own 2025 BUILD.gn says so:
+    #     cflags_cc = [ "-std=c++23" ]
+    # The 2024 file's -std=c++20 makes both errors:
+    #     ../../v8/third_party/libc++/src/src/filesystem/format_string.h:47:12:
+    #     error: no member named 'resize_and_overwrite' in 'std::string'
+    # Only libc++ itself moves: consumers stay on -std=c++20, which is what
+    # Chromium does too.
+    ("buildtools/third_party/libc++/BUILD.gn",
+     'cflags_cc = [ "-std=c++20" ]',
+     'cflags_cc = [ "-std=c++23" ]'),
+    # LLVM 22's charconv reaches out of libc++ into llvm-libc's *shared* header
+    # library -- src/include/from_chars_floating_point.h opens with
+    #     // These headers are in the shared LLVM-libc header library.
+    #     #include "shared/fp_bits.h"
+    # which resolves only through //third_party/llvm-libc:llvm-libc-shared's
+    # `include_dirs = [ "src" ]`:
+    #     ../../v8/third_party/libc++/src/src/include/from_chars_floating_point.h:13:10:
+    #     fatal error: 'shared/fp_bits.h' file not found
+    # Chromium's 2025 BUILD.gn carries that dep.  It has to be *assigned* rather
+    # than appended because the surrounding block only sets `deps` when
+    # export_libcxxabi_from_executables is false, which is true for the asan
+    # configs (is_asan is in its definition) -- so a substitution that assumed
+    # the existing assignment would cover three of five configs and silently
+    # miss two.
+    ("buildtools/third_party/libc++/BUILD.gn",
+     '    defines += [ "LIBCXX_BUILDING_LIBCXXABI" ]\n'
+     '    if (!export_libcxxabi_from_executables) {\n'
+     '      deps = [ "//buildtools/third_party/libc++abi" ]\n'
+     '    }\n',
+     '    defines += [ "LIBCXX_BUILDING_LIBCXXABI" ]\n'
+     '    deps = [ "//third_party/llvm-libc:llvm-libc-shared" ]\n'
+     '    if (!export_libcxxabi_from_executables) {\n'
+     '      deps += [ "//buildtools/third_party/libc++abi" ]\n'
+     '    }\n'),
 )
 
 # Revision-coupled crates that must come from the problem's own image, not from
@@ -229,21 +436,31 @@ NACL_GLOBALS = (
 )
 
 
-def copy_vendored(source: Path, destination: Path, required: tuple[str, ...]) -> Path:
+def copy_vendored(source: Path, destination: Path, required: tuple[str, ...],
+                  replace: bool = False) -> Path:
     """Copy a vendored Chromium directory into this problem's tree.
 
     ``deps/third_party`` is a hardlink tree of the shared fallback, so every
     destination path is removed before it is written: a plain copy over an
     existing inode would write *through* the hardlink and corrupt the shared
     package for every other problem (the same trap ``rename_with_fresh_inode``
-    and ``overlay_from_image`` exist for).  Today the fallback carries neither
-    of these directories, so this normally creates them outright.
+    and ``overlay_from_image`` exist for).
+
+    ``replace`` drops the destination before copying, for the four toolchain
+    trees where a newer upstream revision *deleted* files the fallback still
+    has (libc++'s src/tz.cpp and src/legacy_pointer_safety.cpp, retargeted at
+    src/experimental/ and removed outright upstream).  Copying over the top
+    would leave those behind, still on the include path.  Without it the merge
+    is what keeps e.g. the fallback's non-GN flotsam out of the way while
+    adding only what upstream added.
     """
     for name in required:
         if not (source / name).exists():
             raise SystemExit(f"vendored source is missing {name}: {source}")
     if destination.is_symlink():
         raise SystemExit(f"refusing to write through symlink: {destination}")
+    if replace and destination.exists():
+        shutil.rmtree(destination)
     destination.mkdir(parents=True, exist_ok=True)
     for entry in sorted(source.iterdir()):
         if entry.name in (".git", "__pycache__"):
@@ -253,8 +470,18 @@ def copy_vendored(source: Path, destination: Path, required: tuple[str, ...]) ->
             target.unlink()
         elif target.is_dir():
             shutil.rmtree(target)
-        if entry.is_dir():
-            shutil.copytree(entry, target)
+        # Symlinks are preserved, not followed: the clang toolchain ships
+        # bin/clang++ and bin/clang-cl as symlinks to bin/clang, plus lld and
+        # llvm-objcopy aliases.  copyfile() dereferences, so a plain copy
+        # materialises four extra ~150-250 MB binaries and grows the docker
+        # context by ~540 MB per problem for nothing.  Every link here is
+        # relative and points inside the tree it came from, so the copy stays
+        # self-contained.  The other vendored trees have no symlinks at all,
+        # which is why this only ever showed up once llvm-build joined the table.
+        if entry.is_symlink():
+            os.symlink(os.readlink(entry), target)
+        elif entry.is_dir():
+            shutil.copytree(entry, target, symlinks=True)
         else:
             shutil.copyfile(entry, target)
             target.chmod(0o644)
@@ -311,12 +538,96 @@ def write_compat_build_fragments(deps: Path, source: Path) -> list[Path]:
     return written
 
 
+def write_compat_build_substitutions(deps: Path) -> list[Path]:
+    """Retarget the injected build/ files that name the fallback's toolchain.
+
+    See ``COMPAT_BUILD_SUBSTITUTIONS``.  Each file is rewritten through a fresh
+    inode (``rename_with_fresh_inode``) because it is hardlinked from the
+    shared fallback, and is only rewritten once -- a file already carrying the
+    replacement text is skipped, so re-running over an existing build-inputs
+    tree is a no-op rather than a double replacement.
+    """
+    written: list[Path] = []
+    for relative, old, new in COMPAT_BUILD_SUBSTITUTIONS:
+        target = deps / relative
+        if not target.is_file():
+            raise SystemExit(f"compat substitution target is missing: {target}")
+        if target.is_symlink():
+            raise SystemExit(f"refusing to write through symlink: {target}")
+        text = target.read_text(encoding="utf-8")
+        if new in text:
+            continue
+        if old not in text:
+            raise SystemExit(
+                f"compat substitution has no match in {target}: {old!r}")
+        rename_with_fresh_inode(target, text.replace(old, new))
+        written.append(target)
+    return written
+
+
 def write_nacl_stub(deps: Path) -> Path:
     """Make build/config/nacl/config.gni resolvable for this problem."""
     destination = deps / "build" / "config" / "nacl" / "config.gni"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(NACL_CONFIG_STUB, encoding="utf-8")
     return destination
+
+
+def revision_has_path(v8_git: Path, revision: str, path: str) -> bool:
+    """True when the revision's tree carries ``path``."""
+    result = subprocess.run(
+        ["git", "-C", str(v8_git), "cat-file", "-e", f"{revision}:{path}"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
+
+
+def write_llvm_libc_build_gn(deps: Path, vulnerable: str, v8_git: Path,
+                             compat: Path) -> Path | None:
+    """Complete the vendored llvm-libc tree for a revision that ships no BUILD.gn.
+
+    The ``llvm_libc`` row of VENDORED_THIRD_PARTY installs only the *sources*
+    into third_party/llvm-libc/src and leaves BUILD.gn to the V8 checkout,
+    which holds from 2025 on -- those revisions carry Chromium's llvm-libc fork
+    themselves, BUILD.gn included.  A 2024 revision carries no
+    third_party/llvm-libc directory at all, while the vendored LLVM 22 libc++
+    asks for its target regardless (see the llvm-libc-shared substitution
+    above), so gn gen dies before a single file compiles:
+
+        ERROR at //buildtools/third_party/libc++/BUILD.gn:228:14:
+        Unable to load ".../third_party/llvm-libc/BUILD.gn".
+            deps = [ "//third_party/llvm-libc:llvm-libc-shared" ]
+
+    Chromium's own file is exactly the missing half: a group that puts src/ on
+    the include path -- which is where libc++'s charconv finds
+    ``#include "shared/fp_bits.h"`` -- and defines LIBC_NAMESPACE.  Written
+    only when the revision has none: the source stage ADDs the revision's
+    tarball over source-deps.tar, and a generic Chromium BUILD.gn has no
+    business overwriting a 2025 fork's own file.
+
+    Returns None when the revision carries its own, i.e. when nothing was
+    written.
+    """
+    if revision_has_path(v8_git, vulnerable, "third_party/llvm-libc/BUILD.gn"):
+        return None
+    target = deps / "third_party" / "llvm-libc" / "BUILD.gn"
+    if target.is_symlink():
+        raise SystemExit(f"refusing to write through symlink: {target}")
+    origin = compat / COMPAT_LLVM_LIBC_BUILD
+    if not origin.is_file():
+        raise SystemExit(f"compat source is missing {COMPAT_LLVM_LIBC_BUILD}: {origin}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = origin.read_text(encoding="utf-8")
+    if target.exists():
+        # third_party/ is hardlinked from the shared fallback, so an existing
+        # inode is rewritten through a fresh one -- the trap copy_vendored and
+        # overlay_from_image exist for.  In practice the path is only reached
+        # for a tree that already carries a stale copy.
+        rename_with_fresh_inode(target, text)
+    else:
+        target.write_text(text, encoding="utf-8")
+    target.chmod(0o644)
+    return target
 
 
 # use_gold was removed from Chromium's build/ but survives in the test/ directory
@@ -641,7 +952,7 @@ def main() -> None:
     ap.add_argument("--chromium-compat-dir", type=Path, default=DEFAULT_CHROMIUM_COMPAT,
                     help="build/ files the injected bundle lacks (avx512.gni), "
                          "installed into each problem's build/ tree")
-    for stem, destination, _required in VENDORED_THIRD_PARTY:
+    for stem, destination, _required, _replace in VENDORED_THIRD_PARTY:
         ap.add_argument(f"--{stem.replace('_', '-')}-dir", type=Path,
                         default=VENDORED_DEFAULTS[stem], metavar="DIR",
                         help=f"vendored tree copied to third_party/{destination}/ "
@@ -659,7 +970,7 @@ def main() -> None:
                        (args.simdutf_dir, "simdutf amalgamation"),
                        (args.chromium_compat_dir, "chromium compat build files"),
                        *((getattr(args, stem + "_dir"), f"{stem} tree")
-                         for stem, _d, _r in VENDORED_THIRD_PARTY)):
+                         for stem, _d, _r, _x in VENDORED_THIRD_PARTY)):
         if not path.exists():
             raise SystemExit(f"{what} not found: {path}")
     for config in ("debug", "debug-asan", "release", "release-asan", "coverage"):
@@ -696,17 +1007,24 @@ def main() -> None:
                 raise SystemExit(f"shared fallback has no {name}/: {source}")
             run("cp", "-al", str(source), str(deps / name))
         export_tree(args.v8_git, vulnerable, deps)
-        for name, relative, required in VENDORED_THIRD_PARTY:
+        for name, relative, required, replace in VENDORED_THIRD_PARTY:
             source = getattr(args, name + "_dir")
-            destination = copy_vendored(source, deps / "third_party" / relative, required)
+            destination = copy_vendored(source, deps / "third_party" / relative,
+                                        required, replace)
             files = sum(1 for p in destination.rglob("*") if p.is_file())
             print(f"    {name:<14}-> {destination} ({files} files)")
         for path in write_compat_build_files(deps, args.chromium_compat_dir):
             print(f"    compat build  -> {path}")
         for path in write_compat_build_fragments(deps, args.chromium_compat_dir):
             print(f"    compat fragment -> {path}")
+        for path in write_compat_build_substitutions(deps):
+            print(f"    compat subst  -> {path}")
         print(f"    nacl stub     -> {write_nacl_stub(deps)}")
         print(f"    nacl globals  -> {write_nacl_globals(deps)}")
+        llvm_libc_build = write_llvm_libc_build_gn(deps, vulnerable, args.v8_git,
+                                                   args.chromium_compat_dir)
+        if llvm_libc_build:
+            print(f"    llvm-libc BUILD -> {llvm_libc_build}")
 
         image = None
         if not args.no_overlay_image:
@@ -720,7 +1038,7 @@ def main() -> None:
             verify_image(image, vulnerable, args.v8_git,
                          ["src/wasm/wasm-module.h", "gni/v8.gni"])
 
-        (root / "manifest.json").write_text(json.dumps({
+        manifest = {
             "schema_version": "expben.v8.build-inputs.v1",
             "scope": {
                 "image_id": problem_id,
@@ -761,6 +1079,22 @@ def main() -> None:
                         "reason": "imported by Chromium's third_party/simdutf/"
                                   "BUILD.gn; the injected 2024-02 build/ predates it",
                     },
+                    "buildtools/third_party/libc++/__config_site": {
+                        "source": str(args.chromium_compat_dir),
+                        "version": "chromium/chromium @ a6fc5852b1a8",
+                        "reason": "LLVM 22's <__config> reads boolean feature "
+                                  "macros (_LIBCPP_HAS_LOCALIZATION, "
+                                  "_LIBCPP_HAS_WIDE_CHARACTERS, ...) that the "
+                                  "2024 config site does not define at all, so "
+                                  "`#if` sees 0 and whole headers vanish -- "
+                                  "<ostream> loses every operator<< overload",
+                    },
+                    "buildtools/third_party/libc++/__assertion_handler": {
+                        "source": str(args.chromium_compat_dir),
+                        "version": "chromium/chromium @ a6fc5852b1a8",
+                        "reason": "rides with the config site; LLVM 22's "
+                                  "hardening calls it in a different shape",
+                    },
                     "third_party/partition_alloc": {
                         "source": str(args.partition_alloc_dir),
                         "version": "chromium/chromium @ a6fc5852b1a8 "
@@ -789,6 +1123,85 @@ def main() -> None:
                                   "this revision's src/base/platform/mutex.cc "
                                   "calls",
                     },
+                    "third_party/dragonbox/src": {
+                        "source": str(args.dragonbox_dir),
+                        "version": "jk-jeon/dragonbox @ "
+                                   "6c7c925b571d54486b9ffae8d9d18a822801cbda "
+                                   "(V8 DEPS' own pin for this tree)",
+                        "reason": "src/numbers/conversions.cc includes "
+                                  "third_party/dragonbox/src/include/dragonbox/"
+                                  "dragonbox.h, but the checkout carries only "
+                                  "third_party/dragonbox/BUILD.gn -- the sources "
+                                  "are a separate DEPS repo.  gn gen does not "
+                                  "check that an include_dirs path exists, so "
+                                  "this surfaces as a fatal file-not-found on "
+                                  "the first .cc that includes the header",
+                    },
+                    "third_party/fast_float/src": {
+                        "source": str(args.fast_float_dir),
+                        "version": "fastfloat/fast_float @ "
+                                   "cb1d42aaa1e14b09e1452cfdef373d051b8c02a4 "
+                                   "(V8 DEPS' own pin for this tree)",
+                        "reason": "same shape as dragonbox: a header-only "
+                                  "source_set whose sources are a separate "
+                                  "DEPS repo, absent from the checkout",
+                    },
+                    "third_party/llvm-build/Release+Asserts": {
+                        "source": str(args.llvm_build_dir),
+                        "version": "clang llvmorg-22-init-8940-g4d4cb757-1 "
+                                   "(V8 DEPS' own pin, dep_type: gcs; fetched "
+                                   "from storage.googleapis.com/chromium-browser-clang)",
+                        "reason": "the fallback toolchain is LLVM 18, which "
+                                  "predates std::atomic_ref (LLVM 19); "
+                                  "src/utils/memcopy.h uses it, so every "
+                                  "translation unit fails on that header",
+                    },
+                    "third_party/libc++/src": {
+                        "source": str(args.libcxx_dir),
+                        "version": "llvm/llvm-project @ "
+                                   "4d4cb757f94470b95458fcbe3b88332b212feeee "
+                                   "(LLVM 22; the revision the pinned clang "
+                                   "package names, resolved from its "
+                                   "g4d4cb757 suffix)",
+                        "reason": "the fallback libc++ is LLVM 18, which has "
+                                  "no include/__atomic/atomic_ref.h at all; "
+                                  "libc++ must also match the compiler's ABI",
+                    },
+                    "third_party/libc++abi/src": {
+                        "source": str(args.libcxxabi_dir),
+                        "version": "llvm/llvm-project @ "
+                                   "4d4cb757f94470b95458fcbe3b88332b212feeee",
+                        "reason": "moves in lockstep with libc++",
+                    },
+                    "third_party/libunwind/src": {
+                        "source": str(args.libunwind_dir),
+                        "version": "llvm/llvm-project @ "
+                                   "4d4cb757f94470b95458fcbe3b88332b212feeee",
+                        "reason": "moves in lockstep with libc++",
+                    },
+                    "third_party/llvm-libc/src": {
+                        "source": str(args.llvm_libc_dir),
+                        "version": "llvm/llvm-project @ "
+                                   "4d4cb757f94470b95458fcbe3b88332b212feeee "
+                                   "(libc/; V8 DEPS pins the same tree via "
+                                   "chromium's libc.git subtree mirror)",
+                        "reason": "LLVM 22's libc++ charconv includes "
+                                  "'shared/fp_bits.h' from the LLVM-libc shared "
+                                  "header library; third_party/llvm-libc/ ships "
+                                  "only BUILD.gn, so the src/ half the config's "
+                                  "`include_dirs = [ \"src\" ]` points at is a "
+                                  "DEPS-fetched directory that is absent",
+                    },
+                    "build/tools toolchain stamps": {
+                        "paths": [relative for relative, _o, _n
+                                  in COMPAT_BUILD_SUBSTITUTIONS],
+                        "reason": "the injected build/, buildtools/ and tools/ "
+                                  "name the LLVM 18 toolchain in three places; "
+                                  "`update.py --print-revision` compares its "
+                                  "own CLANG_REVISION against the toolchain's "
+                                  "cr_build_revision stamp and fails gn gen on "
+                                  "a mismatch",
+                    },
                 },
                 "overlaid_from_source_image": {
                     "paths": [] if args.no_overlay_image else list(IMAGE_OVERLAY_PATHS),
@@ -801,7 +1214,22 @@ def main() -> None:
                 },
             },
             "build_jobs": args.build_jobs,
-        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        }
+        if llvm_libc_build:
+            manifest["composition"]["vendored"]["third_party/llvm-libc/BUILD.gn"] = {
+                "source": str(args.chromium_compat_dir),
+                "version": "chromium/chromium @ a6fc5852b1a8",
+                "reason": "this revision predates the llvm-libc fork in V8's "
+                          "own repository, so the vendored LLVM 22 libc++'s "
+                          "dep on //third_party/llvm-libc:llvm-libc-shared has "
+                          "no BUILD.gn to resolve; Chromium's two-line group "
+                          "puts src/ on the include path (libc++'s charconv "
+                          "includes \"shared/fp_bits.h\") and defines "
+                          "LIBC_NAMESPACE",
+            }
+        (root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
         print(f"    wrote {root}")
 
 

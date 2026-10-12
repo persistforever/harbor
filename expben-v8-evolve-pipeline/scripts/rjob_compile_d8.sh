@@ -199,8 +199,19 @@ command -v gn >/dev/null
 # carries its own copy at third_party/depot_tools.  Upstream's image-build-inner
 # had exactly this chain -- dropping it to a bare `command -v ninja` made the
 # whole build depend on a property of whichever image happened to be the base.
+# The injected bundle's *real* ninja binary leads the chain.  Everything under
+# third_party/depot_tools is a wrapper -- autoninja ends in
+# `vpython3 autoninja.py`, and depot_tools/ninja in `python3 ninja.py` -- and
+# vpython3 bootstraps itself from CIPD over the network.  A sealed build
+# container has no network and does not put depot_tools on PATH, so the wrapper
+# dies with "vpython3: command not found" (exit 127) *after* gn gen has already
+# reported success, which makes it read as a toolchain failure when it is
+# really just a missing interpreter.  source-deps ships the plain 8 MB binary at
+# third_party/ninja/ninja; the wrappers stay in the chain for trees that have
+# them bootstrapped.
 NINJA=""
 for candidate in \
+  /rlenv/source/v8/third_party/ninja/ninja \
   /rlenv/source/v8/third_party/depot_tools/autoninja \
   /rlenv/source/v8/third_party/depot_tools/ninja \
   /rlenv/source/depot_tools/autoninja \

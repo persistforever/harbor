@@ -1,188 +1,185 @@
-# source 镜像本地构建被卡住：V8 源码 revision 与构建工具链相差一年半
+# V8 源码 revision 与构建工具链相差一年半 —— 已在本机解决
 
-**状态**：阻塞，需要一台能连 `chromium.googlesource.com` 的机器提供产物。
-**影响**：本包 2 个 source 镜像在受限网络机器上无法用
-`expben-v8-evolve-pipeline --stage source` 造出来。
+**状态**：**已解决，不需要联网机器补产物。**
+（文件名 `SOURCE-IMAGES-BLOCKED.md` 是历史遗留：本文最初是"卡住了、求补包"的记录。
+结论保留在下面，新增第 2 节说明这些东西当时以为拿不到、实际都能拿到。）
 
-| source 镜像 | fix commit（V8 约 14.2，2025-09） |
-|---|---|
-| `cybergen_v8_cr_15a72141745c` | `15a72141745c7c66baf0a776ec88177424b0172e` |
-| `cybergen_v8_cr_1b85c84da74a` | `1b85c84da74a325826f4e940d1affee9d94c8beb` |
-
-**结论先行**：`SOURCE-IMAGES.md` 里"用 cybergen 造源镜像"仍然是正解（那条路走
-`gclient sync`，天然拿到匹配的工具链）。本文记录的是**想在不联网的机器上自己造**时
-撞到的那堵墙，以及需要联网机器补哪几样东西。
+**影响范围**：`cybergen_v8_cr_15a72141745c`、`cybergen_v8_cr_1b85c84da74a`。
+两题**不是同一个时代**：前者 V8 ~14.2 / 2025-09 / DEPS pin LLVM 22，第 1 节的工具链代差
+讲的是它；后者 V8 12.8 / 2024-06 / DEPS pin LLVM 19，与 fallback 的 V8 12.3（2024-02）
+只隔五个月，真正卡住它的是**本机统一装的 LLVM 22 那套 libc++**（见第 7 节），
+不是代差。
 
 ---
 
-## 1. 现象
+## 1. 原问题
 
-用 `expben-v8-evolve-pipeline --stage source` 在受限网络机器上构建
-`cybergen_v8_cr_15a72141745c`：
-
-| 阶段 | 结果 |
-|---|---|
-| `prepare_problem_build_inputs.py` | 通过 |
-| `gn gen`（release） | **通过**（补了 5 处兼容后） |
-| `ninja d8`（release） | **失败**，2532 个目标里做到 1032 个 `.o` 就全 16 路编译器一起卡死 |
-
-失败时 45 秒内：`clang++` 进程数 16 不变、完成的 `.o` 从 1032 → 1032（零进展）、
-错误行数从 508 → 644（还在涨）。也就是**所有编译器都撞在同一个头文件错误上**。
-
-三个报错文件（同一个根因）：
+用 `expben-v8-evolve-pipeline --stage source` 造源镜像时，`gn gen` 能过、`ninja d8` 全灭：
 
 ```
 ../../v8/src/utils/memcopy.h:355:10: error: no member named 'atomic_ref' in namespace 'std'
-  355 |     std::atomic_ref<T>(destination[i]).store(value, std::memory_order_relaxed);
-../../v8/src/builtins/builtins-typed-array.cc   （同上，经 memcopy.h）
-../../v8/src/wasm/value-type.h                  （同上量级）
 ```
 
-编译命令行里能直接看到版本：
+编译命令行里能直接看到版本代差：
 
 ```
--DCR_CLANG_REVISION=\"llvmorg-18-init-17730-gf670112a-3\"
+-DCR_CLANG_REVISION=\"llvmorg-18-init-17730-gf670112a-3\"     ← fallback 的工具链
 -DCR_LIBCXX_REVISION=9d119c1f4a097b7d27210874f4eba3fc91a83a4e
 ```
 
----
-
-## 2. 根因：不是缺包，是工具链代数不对
-
-`bootstrap.sh` 注入的那份 "shared fallback" checkout 是 **V8 12.3（2024-04）** 时代的；
-题目源码是 **2025-09-29**（V8 约 14.2）。中间隔了一年半、两个大版本。
-
-| 组件 | 本题 revision 的 DEPS 要求 | fallback 里实际有的 |
-|---|---|---|
-| clang | `llvmorg-22-init-8940-g4d4cb757`（DEPS:316 起的预编译包名） | `18.0.0git` @ `f670112a` |
-| libc++ | `4b4a57f5cf627639c041368120af9d69ed40032c`（LLVM 22） | `_LIBCPP_VERSION 190000`，且 `__atomic/atomic_ref.h` **整个文件不存在** |
-| libc++abi | `864f61dc9253d56586ada34c388278565ef513f6` | 同步老龄 |
-| libunwind | `322be580a5a193a921c349a15747eeeb9a716ad1` | 同步老龄 |
-| build/ | `dd54bc718b7c5363155660d12b7965ea9f87ada9` | V8 12.3 时代那一份 |
-
-前四处是 `git archive <vulnerable>` 拿不到的（它们来自 gclient 的 DEPS 解析），
-所以本地构建只能靠 fallback；而 fallback 的版本和源码 revision 对不上。
-
-这也解释了为什么这套流程之前给 `00348ef5c3c1`、`1158ae719749` 用没问题——那两道题
-本身就是老龄 revision，和 fallback 同代。
+根因：`bootstrap.sh` 注入的 shared fallback checkout 是 **V8 12.3 / LLVM 18（2024-04）** 时代的，
+题目源码是 **LLVM 22（2025-09）** 时代的。中间隔了一年半、四个 LLVM 大版本。
+`std::atomic_ref` 是 C++20 里 LLVM 19 才落地的，所以每个翻译单元都死在这个头上，
+16 个 clang 进程一起卡死，`-k 0` 跑下去只会空转。
 
 ---
 
-## 3. 已经在本地修好的 5 处（代码已落，不用重复劳动）
+## 2. 当时以为拿不到、实际都能拿到的四样
 
-全部记在 `expben-v8-evolve-pipeline/scripts/prepare_problem_build_inputs.py` 里，
-`VENDORED_THIRD_PARTY` / `COMPAT_BUILD_FILES` / `COMPAT_BUILD_FRAGMENTS` 三张表 +
-`rjob_compile_d8.sh` 的兼容参数，都是按 DEPS pin 取得并逐条验证过 `gn gen` 通过的。
-
-| # | 依赖 | 症状 | 来源（已 vendored） |
+| 要什么 | DEPS 里的源 | 当时判断 | 实际 |
 |---|---|---|---|
-| 1 | `third_party/simdutf` | `ERROR at //BUILD.gn:5032: Unable to load third_party/simdutf/BUILD.gn` | chromium/chromium @ `a6fc5852b1a8` |
-| 2 | `third_party/partition_alloc` | `ERROR at //BUILD.gn:5104: Unable to load .../partition_alloc/BUILD.gn` | chromium/chromium @ `a6fc5852b1a8` |
-| 3 | `third_party/highway/src` | `ninja: error: third_party/highway/src/hwy/abort.cc missing and no known rule`（**gn gen 是过的**，只在 ninja 阶段暴露） | google/highway @ `84379d1c`（DEPS 自己的 pin） |
-| 4 | `third_party/abseil-cpp` | `src/base/platform/mutex.cc:63: error: no member named 'lock' in 'absl::Mutex'`（**版本漂移**，不是缺目录） | chromium/src/third_party/abseil-cpp @ `c3655ab8`（该 sha 在 github.com/abseil/abseil-cpp 里存在） |
-| 5 | build/ 兼容 | `avx512.gni` 缺失、`is_nacl_saigo` 未声明、`no_exit_time_destructors` config 未定义、`.gn` allowlist 改名、`use_libcxx_modules` 残留赋值 | 逐条打补丁 |
+| clang 工具链 `llvmorg-22-init-8940` | `dep_type: gcs`，bucket `chromium-browser-clang` | 包体在 `commondatastorage.googleapis.com` / `chrome-infra-packages.appspot.com`，两个域名都不通 | **能拿到**：同一个 bucket 在 `storage.googleapis.com` 用 **path 式 URL** 可以访问（见下），sha256 与 DEPS 逐位吻合 |
+| libc++ / libc++abi / libunwind | chromium.googlesource.com 的 llvm-project **子树镜像**，sha 只存在于 chromium 侧（`api.github.com` 返回 422） | 拿不到 | **能拿到**：工具链包名后缀 `g4d4cb757` 就是上游 revision，`github.com/llvm/llvm-project` 上有同样的源码 |
+| llvm-libc `src/` | 同上，`external/github.com/llvm/llvm-project/libc.git` | 同上 | **能拿到**：同属 llvm-project，同一个 revision 的 `libc/` |
+| chromium 的 `__config_site` | `buildtools/third_party/libc++/__config_site` | 未意识到需要 | **能拿到**：`chromium/chromium @ a6fc5852`（题目 revision 前一天）里就是 LLVM 22 时代的真件 |
 
-3 和 4 是同一类病的两种表现：**目录不在**（gn gen 就能发现）和**版本不对**
-（gn gen 通过、编译期才炸，更贵）。
+### 关键那条：GCS 桶的双域名
 
----
-
-## 4. 本机解决不了的四样
-
-| 要什么 | DEPS 里的源 | 为什么本机拿不到 |
-|---|---|---|
-| clang 工具链（`llvmorg-22-init-8940`） | `dep_type: gcs`，bucket `chromium-browser-clang`，对象 `Linux_x64/clang-llvmorg-22-init-8940-g4d4cb757-1.tar.xz`（**53 MB xz**，sha256 `35a8629534f534aa6771470945fc0baa6906b3fffb28433bc08674d343b84c90`） | 包体在 `commondatastorage.googleapis.com` / `chrome-infra-packages.appspot.com`，两个域名本机都不通 |
-| `third_party/libc++/src` | `external/github.com/llvm/llvm-project/libcxx.git` @ `4b4a57f5` | 该 sha 在 github.com/llvm/llvm-project 里**不存在**（`api.github.com` 返回 422，`raw.githubusercontent` 取 `libcxx/include/__config` 返回 404）。chromium 的 llvm 镜像是它自己切的子树镜像，commit 是生成的，sha 和上游对不上 |
-| `third_party/libc++abi/src` | `.../libcxxabi.git` @ `864f61dc` | 同上，422 |
-| `third_party/libunwind/src` | `.../libunwind.git` @ `322be580` | 同上，422 |
-
-对比一下就很清楚——凡是**真·GitHub 仓库的镜像**，同一个 sha 直接拿得到；是
-chromium 自己切的子树镜像，就拿不到：
-
-| 依赖 | 镜像类型 | 本机能否取到 |
-|---|---|---|
-| abseil-cpp / highway | GitHub 仓库镜像，sha 一致 | ✅ 已 vendored |
-| simdutf / partition_alloc | chromium 自持仓库，但有 `chromium/chromium` 主仓可替代 | ✅ 已 vendored |
-| libc++ / libc++abi / libunwind | llvm 子树镜像，sha 只存在于 chromium 侧 | ❌ |
-| clang 工具链 | GCS 预编译包 | ❌ |
-
----
-
-## 5. 需要联网机器做什么（二选一）
-
-### 方案 A（推荐）：给出这一 revision 的 deps 包，本地继续构建
-
-在一台能连 `chromium.googlesource.com` 的机器上：
+`commondatastorage.googleapis.com` 被墙，但**同一个桶**挂在 `storage.googleapis.com` 上：
 
 ```bash
-export PATH=/path/to/depot_tools:$PATH
-mkdir -p /srv/v8deps && cd /srv/v8deps
+# 不通
+curl -I https://commondatastorage.googleapis.com/chromium-browser-clang/Linux_x64/clang-llvmorg-22-init-8940-g4d4cb757-1.tar.xz
 
-gclient config --name v8 https://chromium.googlesource.com/v8/v8.git --unmanaged
-gclient sync -D --nohooks --revision v8@15a72141745c7c66baf0a776ec88177424b0172e
+# 通（path 式）
+curl -L -o clang.tar.xz \
+  https://storage.googleapis.com/chromium-browser-clang/Linux_x64/clang-llvmorg-22-init-8940-g4d4cb757-1.tar.xz
 
-tar -cf /tmp/v8-deps-15a72141745c.tar -C /srv/v8deps/v8 \
-    build buildtools third_party
+sha256sum clang.tar.xz   # 35a8629534f534aa6771470945fc0baa6906b3fffb28433bc08674d343b84c90
 ```
 
-`-D --nohooks` 是 `bootstrap.sh` 里同样的用法。`third_party/llvm-build/Release+Asserts`
-是 `dep_type: gcs` 的 deps 条目（不是 hook），所以 `--nohooks` 不影响它，照样会下。
+同一条 DEPS 里另外两个 Linux 对象（覆盖工具、objdump）走同一个前缀：
 
-- **最小集**（约 1 GB，能解决当前已知的全部问题）：
-  `build`、`buildtools`、
-  `third_party/llvm-build/Release+Asserts`、
-  `third_party/libc++/src`、`third_party/libc++abi/src`、`third_party/libunwind/src`、
-  `third_party/abseil-cpp`、`third_party/highway/src`、
-  `third_party/simdutf`、`third_party/partition_alloc`
-- **保险做法**（约 3–5 GB）：整份 `third_party`。理由见下。
+- `Linux_x64/llvm-code-coverage-llvmorg-22-init-8940-g4d4cb757-1.tar.xz`
+  sha256 `56bb0093e2e8f71e682f03b0e379d7dac0bacfcc83bfccfd42a4fcd1310fbe75`
+- `Linux_x64/llvmobjdump-llvmorg-22-init-8940-g4d4cb757-1.tar.xz`
+  sha256 `9236697d64fc9444b22c90a112f6b3a76ee1edf5b3891af67de0849deb274514`
 
-拿过来之后本地要做的事：把这份 `build`/`buildtools`/`third_party` 替换掉
-fallback 里的对应目录，重跑 `prepare_problem_build_inputs.py --overwrite`，
-先过 `gn gen` + 缺失输入扫描，再编 `d8`。
+### GitHub 侧
 
-**顺带好处**：`build/` 和 `buildtools/` 也跟着对齐的话，上面第 5 项那一堆兼容补丁
-（avx512.gni、is_nacl_saigo、no_exit_time_destructors、.gn allowlist、use_libcxx_modules）
-**全部可以删掉**——它们存在的唯一原因就是"拿 2024 的 build/ 去编 2025 的源码"。
-`build/` 只有几万行 GN，`buildtools` 也就百 MB，成本很低，收益是把整类兼容补丁清零。
+`raw.githubusercontent.com` 时通时断（同一批请求里 200 和 000 交替），
+**`api.github.com` 的 contents 接口更稳**，直接把文件 base64 发回来：
 
-### 方案 B：直接在联网机器上按 `SOURCE-IMAGES.md` 用 cybergen 造源镜像
+```bash
+curl -s -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/chromium/chromium/contents/buildtools/third_party/libc%2B%2B/__config_site?ref=a6fc5852b1a8" \
+| python3 -c "import base64,json,sys; print(base64.b64decode(json.load(sys.stdin)['content']).decode())"
+```
 
-那条路本来就是为这个场景写的，`gclient sync` 拿到的工具链天然匹配，
-不用管本文列的任何一条。代价是要在那台机器上跑完整构建（每题 3 config × 2 side）。
+`chromium.googlesource.com`、`commondatastorage.googleapis.com`、
+`chrome-infra-packages.appspot.com` 仍然不通。
 
 ---
 
-## 6. 拿到东西之后怎么验证（本地）
+## 3. 代码里改了什么
+
+### `expben-v8-evolve-pipeline/scripts/prepare_problem_build_inputs.py`
+
+原来只有 4 条 vendored 表项（simdutf / partition_alloc / highway / abseil），
+现在扩到 9 条，并且新增了两套机制：
+
+| 表 / 机制 | 作用 |
+|---|---|
+| `VENDORED_THIRD_PARTY` 新增 5 条 | `llvm-build/Release+Asserts`、`libc++/src`、`libc++abi/src`、`libunwind/src`、`llvm-libc/src` |
+| 表项第 4 列 `replace` | 这 5 条是**整树替换**而不是叠加。上游删过的文件（libc++ 的 `src/tz.cpp`、`src/legacy_pointer_safety.cpp`）如果留在地上，会被新的同名头文件连带包含进去；纯拷贝做不到删除 |
+| `COMPAT_BUILD_SUBSTITUTIONS`（新） | 单点文本替换，7 条。`gn gen` 就会炸的那些版本戳，见下 |
+| `COMPAT_BUILD_FILES` 新增 2 条 | `buildtools/third_party/libc++/{__config_site,__assertion_handler}` |
+
+`COMPAT_BUILD_SUBSTITUTIONS` 的 7 条，每条都是"不换工具链看不出来、换了不修就 `gn gen` 失败"的：
+
+| 文件 | 改什么 | 不改会怎样 |
+|---|---|---|
+| `tools/clang/scripts/update.py` ×3 | `CLANG_REVISION` / `CLANG_SUB_REVISION` / `RELEASE_VERSION` → LLVM 22 | `--print-revision` 会把 `PACKAGE_VERSION` 与工具链的 `cr_build_revision` **逐字比对**，不一致直接返回 1，`gn gen` 立刻失败 |
+| `build/toolchain/toolchain.gni` | `clang_version` `"18"` → `"22"` | `update.py` 拿它当 `--verify-version`，与自己的 `RELEASE_VERSION` 比对，不一致报 "clang_version in build/toolchain/toolchain.gni is likely outdated" |
+| `buildtools/third_party/libc++/BUILD.gn` ×2 | `legacy_pointer_safety.cpp` → `expected.cpp`；`-std=c++20` → `-std=c++23` | 前者 ninja 找不到文件、后者 libc++ 自己编不过（`resize_and_overwrite`、`std::expected` 都是 C++23） |
+| 同上 | libc++ target 补 `deps = [ "//third_party/llvm-libc:llvm-libc-shared" ]` | LLVM 22 的 `charconv` 从 libc++ 伸到 llvm-libc 的 shared 头库（`#include "shared/fp_bits.h"`）。必须是**赋值**不是追加：原来那行 `deps =` 只在 `export_libcxxabi_from_executables` 为假时才存在，而 asan 配置下它是真，追加写法会漏掉 5 个配置里的 2 个 |
+
+### `expben-v8-evolve-pipeline/scripts/prepare_context.py`
+
+`REQUIRED_SOURCE_DEPS` 里要求 `third_party/libc++/src/include/__algorithm/ranges_shift_left.h`。
+**上游在 LLVM 22 删掉了这个文件**（P2440 落地时一并移除），所以这条断言对所有 LLVM 22 的题目
+必然报 "source dependency bundle is incomplete"。已改为两代都有的
+`__algorithm/shift_left.h`，校验意图不变（证明随工具链一起来的 libc++ 头是齐的）。
+
+---
+
+## 4. 本机缓存（换机要重做）
+
+| 路径 | 内容 |
+|---|---|
+| `/data/temporal/llvm-build-llvmorg-22/` | clang 22 + 覆盖工具 + objdump，布局直接对应 `third_party/llvm-build/Release+Asserts` |
+| `/data/temporal/llvm-project-4d4cb757/{libcxx,libcxxabi,libunwind,libc}` | sparse + blobless clone，revision `4d4cb757f94470b95458fcbe3b88332b212feeee` |
+| `/data/temporal/chromium-compat-a6fc5852/buildtools/third_party/libc++/{__config_site,__assertion_handler}` | LLVM 22 时代的 chromium 真件 |
+
+---
+
+## 5. 怎么验证（本机，分钟级）
 
 ```bash
-# 1. 重新生成 build-inputs
-python3 expben-v8-evolve-pipeline/scripts/prepare_problem_build_inputs.py \
-  --problem-id cybergen_v8_cr_15a72141745c \
-  --fix-commit 15a72141745c7c66baf0a776ec88177424b0172e \
-  --pkg-config-path /data/temporal/pkg-config-wrapper.sh \
-  --no-overlay-image --overwrite --output-root /data/temporal
-
-# 2. gn gen + 缺失输入全量扫描（秒级，能一次列出所有缺的源文件）
-#    见 /data/temporal/smoke/refresh.sh，它会直接执行 rjob_compile_d8.sh 里的兼容段，
-#    然后扫 out/ 下所有 ninja 输入、把所有不存在的路径一次性打印出来
+# 1. 重新生成 build-inputs 并 gn gen，顺带全量扫缺失输入
 /data/temporal/smoke/refresh.sh cybergen_v8_cr_15a72141745c release
+#    期望：Done. Made 578 targets ...  /  missing inputs: 0 distinct path group(s)
 
-# 3. 编 d8（先单 config 验证，再上 docker）
-ninja -C /data/temporal/smoke/out/x64.release d8 -j16
+# 2. 编之前必炸的那几个文件
+NINJA=/data/temporal/smoke/v8/third_party/ninja/ninja
+OUT=/data/temporal/smoke/out/x64.release
+"$NINJA" -C "$OUT" -j16 \
+  obj/v8_base_without_compiler/memcopy.o \
+  obj/v8_base_without_compiler/builtins-typed-array.o \
+  obj/buildtools/third_party/libc++/libc++/{charconv,expected,path}.o
 ```
 
-第 2 步那个扫描是这轮加的，专门治"3 和 4 那类只在编译期暴露的缺依赖"——
-`gn gen` 只看 BUILD.gn 的 label，DEPS 解析出来的源文件它根本不检查。
+`refresh.sh` 第 2 步不会重写兼容逻辑——它直接从 `rjob_compile_d8.sh` 里把那段 heredoc
+抠出来执行，免得冒烟测试过了而容器里挂了。
 
 ---
 
-## 附：本地现状（供参考，别重复踩）
+## 6. 遗留风险
 
-- fallback checkout：`/data/temporal/v8`（V8 12.3）
-- 构建输入：`/data/temporal/expben_v8_build/problems/<problem>/build-inputs/`
-- 冒烟测试：`/data/temporal/smoke/`（`refresh.sh` 会重建 scratch 树、跑
-  `rjob_compile_d8.sh` 的兼容段、`gn gen`、再扫缺失输入）
-- vendored 缓存：`/data/temporal/{simdutf-amalgam,partition-alloc,highway-84379d1c,abseil-cpp-c3655ab8}`
-- 已验证可用的 GitHub 通道：`gh-proxy.com`（clone）、`api.github.com`、
-  `raw.githubusercontent.com`（小文件）；`github.com:443` 直连、`chromium.googlesource.com`、
-  `commondatastorage.googleapis.com`、`chrome-infra-packages.appspot.com` 均不通。
+- **`-std=c++23` 只作用于 libc++ 自己**，消费方仍旧 `-std=c++20`，和 Chromium 一致。
+- `_LIBCPP_INSTRUMENTED_WITH_ASAN`：chromium 2025 是在 `build/config/c++/BUILD.gn` 里按
+  `is_asan` 设的，我们这份 2024 的 `build/` 没有这个设置。undefined 在 `#if` 里读作 0，
+  是安全侧（libc++ 容器不加 ASAN 友好标注），只影响优化不影响正确性。
+- clang 工具链是**上游 revision** 的，`buildtools/third_party/libc++/BUILD.gn` 里那份
+  写死的源文件清单仍是 2024 的。目前对齐（LLVM 22 只与它差一增一减，已补），
+  但下次再换工具链代数时，这里仍然是最先出问题的地方——`gn gen` 能过、编译期才炸。
+
+---
+
+## 7. 老 revision 的题目（`cybergen_v8_cr_1b85c84da74a`，V8 12.8）
+
+第 1～6 节讲的是 LLVM 22 时代的题目；12.8 这题（fix `1b85c84da74a` = 2024-06-26，
+vulnerable `6a4b9641`，DEPS pin LLVM 19）**不是**代差问题：它的 `src/` 里
+`atomic_ref` 出现 0 次，fallback 的 V8 12.3 `build/` 也够用（冒烟测试 gn gen 直接过）。
+它卡在另一处——**vendored LLVM 22 的 libc++ 要求 `//third_party/llvm-libc`**：
+
+```
+ERROR at //buildtools/third_party/libc++/BUILD.gn:228:14:
+Unable to load ".../third_party/llvm-libc/BUILD.gn".
+    deps = [ "//third_party/llvm-libc:llvm-libc-shared" ]
+```
+
+- `third_party/llvm-libc` 是 **V8 2025 年才进自家仓库的 fork**（12.8 的 `third_party/`
+  只有 11 个目录，没有它）。`VENDORED_THIRD_PARTY` 往 `third_party/llvm-libc/src`
+  里灌的是 LLVM 源码，`BUILD.gn` 一直指望题目的 checkout 提供——2025 的题目有，2024 的没有。
+- 修法：`prepare_problem_build_inputs.py::write_llvm_libc_build_gn()`，当
+  `git cat-file -e <vulnerable>:third_party/llvm-libc/BUILD.gn` 不存在时，把
+  `chromium-compat-a6fc5852/third_party/llvm-libc/BUILD.gn.2025`（Chromium 那份两行 group：
+  `include_dirs = [ "src" ]` + `LIBC_NAMESPACE=__llvm_libc_cr`）落成 `BUILD.gn`。
+  **仅在该 revision 没有时写**：2025 的题目自带 fork 的真件，`ADD source-deps.tar`
+  会盖在镜像里的树上面，不能拿通用件去覆盖。
+- 所以 `BUILD.gn.2025` 这个 fragment 从"手动补进 smoke 树"变成了生成器的一步：
+  之前它只被手工用过（第 5 节那份 ninja 清单就是这么来的），没接进
+  `prepare_problem_build_inputs.py`，2024 的题目上必然复现。
+
+同批 10 题里凡 V8 < 2025 的，都会吃这一条。
