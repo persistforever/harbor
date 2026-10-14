@@ -55,7 +55,7 @@ docker pull ghcr.io/persistforever/v8evo-15a72141745c-d01:r1
 > 只读 token（`read:packages`，仅能 pull，无写权限、无仓库权限）：
 >
 > ```bash
-> export GHCR_TOKEN=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
+> export GHCR_TOKEN=ghp_xxx
 > ```
 
 ### 3) 无 docker 环境（curl 直连 registry v2 API）
