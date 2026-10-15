@@ -12,20 +12,20 @@ grader 在容器内就地打分。
 
 | 问题 | 变体 | GHCR ref |
 |---|---|---|
-| `cybergen_v8_cr_15a72141745c` | d01 | `ghcr.io/persistforever/v8evo-15a72141745c-d01:r1` |
-| | d02 | `ghcr.io/persistforever/v8evo-15a72141745c-d02:r1` |
-| | d03 | `ghcr.io/persistforever/v8evo-15a72141745c-d03:r1` |
-| | d04 | `ghcr.io/persistforever/v8evo-15a72141745c-d04:r1` |
-| | d06 | `ghcr.io/persistforever/v8evo-15a72141745c-d06:r1` |
-| `cybergen_v8_cr_1b85c84da74a` | d01 | `ghcr.io/persistforever/v8evo-1b85c84da74a-d01:r1` |
-| | d06 | `ghcr.io/persistforever/v8evo-1b85c84da74a-d06:r1` |
-| | d08 | `ghcr.io/persistforever/v8evo-1b85c84da74a-d08:r1` |
-| | d09 | `ghcr.io/persistforever/v8evo-1b85c84da74a-d09:r1` |
-| | d10 | `ghcr.io/persistforever/v8evo-1b85c84da74a-d10:r1` |
+| `cybergen_v8_cr_15a72141745c` | d01 | `ghcr.io/persistforever/1014-v8evo-15a72141745c-d01:r1` |
+| | d02 | `ghcr.io/persistforever/1014-v8evo-15a72141745c-d02:r1` |
+| | d03 | `ghcr.io/persistforever/1014-v8evo-15a72141745c-d03:r1` |
+| | d04 | `ghcr.io/persistforever/1014-v8evo-15a72141745c-d04:r1` |
+| | d06 | `ghcr.io/persistforever/1014-v8evo-15a72141745c-d06:r1` |
+| `cybergen_v8_cr_1b85c84da74a` | d01 | `ghcr.io/persistforever/1014-v8evo-1b85c84da74a-d01:r1` |
+| | d06 | `ghcr.io/persistforever/1014-v8evo-1b85c84da74a-d06:r1` |
+| | d08 | `ghcr.io/persistforever/1014-v8evo-1b85c84da74a-d08:r1` |
+| | d09 | `ghcr.io/persistforever/1014-v8evo-1b85c84da74a-d09:r1` |
+| | d10 | `ghcr.io/persistforever/1014-v8evo-1b85c84da74a-d10:r1` |
 
 ```bash
-docker pull ghcr.io/persistforever/v8evo-15a72141745c-d01:r1
-docker pull ghcr.io/persistforever/v8evo-1b85c84da74a-d10:r1
+docker pull ghcr.io/persistforever/1014-v8evo-15a72141745c-d01:r1
+docker pull ghcr.io/persistforever/1014-v8evo-1b85c84da74a-d10:r1
 ```
 
 - 体积：每个 evolved 镜像压缩后 **≈ 6.31 GiB**，45 层，`amd64/linux`
@@ -38,7 +38,7 @@ docker pull ghcr.io/persistforever/v8evo-1b85c84da74a-d10:r1
 
 ```bash
 echo "$GHCR_TOKEN" | docker login ghcr.io -u persistforever --password-stdin
-docker pull ghcr.io/persistforever/v8evo-15a72141745c-d01:r1
+docker pull ghcr.io/persistforever/1014-v8evo-15a72141745c-d01:r1
 ```
 
 #### Token 申请：只给「能 pull」的最小权限
@@ -64,10 +64,10 @@ docker pull ghcr.io/persistforever/v8evo-15a72141745c-d01:r1
 
 ```bash
 TOK=$(curl -s -u persistforever:$GHCR_TOKEN \
-  "https://ghcr.io/token?scope=repository:persistforever/v8evo-15a72141745c-d01:pull&service=ghcr.io" \
+  "https://ghcr.io/token?scope=repository:persistforever/1014-v8evo-15a72141745c-d01:pull&service=ghcr.io" \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
 curl -s -H "Authorization: Bearer $TOK" \
-  https://ghcr.io/v2/persistforever/v8evo-15a72141745c-d01/tags/list
+  https://ghcr.io/v2/persistforever/1014-v8evo-15a72141745c-d01/tags/list
 # 之后按 manifest 里的 digest 逐个 GET /v2/<repo>/blobs/<digest>（-L 跟随跳转）
 ```
 
