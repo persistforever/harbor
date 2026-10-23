@@ -1,0 +1,53 @@
+--- a/src/maglev/maglev-graph-builder.cc
++++ b/src/maglev/maglev-graph-builder.cc
+@@ -13539,12 +13539,6 @@
+   DCHECK(!map.IsInobjectSlackTrackingInProgress());
+   int slot_count = map.instance_size() / kTaggedSize;
+   SBXCHECK_GE(slot_count, 3);
+-  // The topmost in-object property slot is only ever written by a field
+-  // store, which targets the materialized object directly, so the tracked
+-  // slot array can stop one slot short of the instance size.
+-  if (slot_count > Shape::header_slot_count) {
+-    slot_count--;
+-  }
+   VirtualObject* vobj = NodeBase::New<VirtualObject>(
+       zone(), 0, NewObjectId(), this, &Shape::kObjectLayout, map, slot_count);
+   vobj->set(HeapObject::kMapOffset, GetConstant(map));
+@@ -13620,12 +13614,6 @@
+   compiler::MapRef map = constructor.initial_map(broker());
+   int slot_count = prediction.instance_size() / kTaggedSize;
+   SBXCHECK_GE(slot_count, 3);
+-  // The topmost in-object property slot is only ever written by a field
+-  // store, which targets the materialized object directly, so the tracked
+-  // slot array can stop one slot short of the instance size.
+-  if (slot_count > Shape::header_slot_count) {
+-    slot_count--;
+-  }
+   VirtualObject* vobj = NodeBase::New<VirtualObject>(
+       zone(), 0, NewObjectId(), this, &Shape::kObjectLayout, map, slot_count);
+   vobj->set(HeapObject::kMapOffset, GetConstant(map));
+--- a/src/maglev/maglev-ir.h
++++ b/src/maglev/maglev-ir.h
+@@ -6327,7 +6327,9 @@
+   }
+ 
+   ValueNode* get(uint32_t offset) const {
+-    return slots_[object_layout_->SlotAtOffset(offset)];
++    uint32_t slot_index = object_layout_->SlotAtOffset(offset);
++    SBXCHECK_LT(slot_index, slot_count());
++    return slots_[slot_index];
+   }
+ 
+   void set(uint32_t offset, ValueNode* value) {
+@@ -6526,6 +6528,11 @@
+     // Values set here can leak to the interpreter. Conversions should be stored
+     // in known_node_aspects/NodeInfo.
+     DCHECK(!value->properties().is_conversion());
++    // TODO(jgruber): Indices are commonly passed in from places that read
++    // potentially attacker-corrupted heap objects. Either we catch all such
++    // usages with CHECKs, or we add one here. Honestly I like neither option
++    // that much, but doing so in this chokepoint is safer.
++    SBXCHECK_LT(i, slot_count());
+     slots_[i] = value;
+   }
+ 

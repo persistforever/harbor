@@ -1,0 +1,54 @@
+--- a/src/maglev/maglev-graph-builder.cc
++++ b/src/maglev/maglev-graph-builder.cc
+@@ -13636,14 +13636,7 @@
+   DCHECK_EQ(Shape::header_slot_count + length,
+             FixedArray::SizeFor(length) / FieldSizeOf(Shape::kBodyFieldType));
+ 
+-  // The advertised length and the number of allocated element slots are
+-  // decoupled: the length slot keeps reporting `length`, but only the first
+-  // `allocated_elements` element slots exist. A constant-index element load
+-  // whose index passes the `index < length` guard therefore resolves (via
+-  // ObjectLayout::SlotAtOffset) to a slot index at or past slot_count().
+-  constexpr int kOobWindow = 4;
+-  int allocated_elements = std::max(1, length - kOobWindow);
+-  int slot_count = Shape::header_slot_count + allocated_elements;
++  int slot_count = Shape::header_slot_count + length;
+   VirtualObject* vobj = NodeBase::New<VirtualObject>(
+       zone(), 0, NewObjectId(), this, &Shape::kObjectLayout, map, slot_count);
+ 
+@@ -13651,9 +13644,7 @@
+   // TODO(jgruber): This is a smi field. Is there some advantage to creating an
+   // int32 constant first?
+   vobj->set(FixedArrayBase::kLengthOffset, GetInt32Constant(length));
+-  // Only initialize the slots that were actually allocated, so that
+-  // construction itself never writes past slots_.
+-  for (int i = 0; i < allocated_elements; i++) {
++  for (int i = 0; i < length; i++) {
+     DCHECK_NOT_NULL(values[i]);
+     vobj->set(FixedArray::OffsetOfElementAt(i), values[i]);
+   }
+--- a/src/maglev/maglev-ir.h
++++ b/src/maglev/maglev-ir.h
+@@ -6327,7 +6327,9 @@
+   }
+ 
+   ValueNode* get(uint32_t offset) const {
+-    return slots_[object_layout_->SlotAtOffset(offset)];
++    uint32_t slot_index = object_layout_->SlotAtOffset(offset);
++    SBXCHECK_LT(slot_index, slot_count());
++    return slots_[slot_index];
+   }
+ 
+   void set(uint32_t offset, ValueNode* value) {
+@@ -6526,6 +6528,11 @@
+     // Values set here can leak to the interpreter. Conversions should be stored
+     // in known_node_aspects/NodeInfo.
+     DCHECK(!value->properties().is_conversion());
++    // TODO(jgruber): Indices are commonly passed in from places that read
++    // potentially attacker-corrupted heap objects. Either we catch all such
++    // usages with CHECKs, or we add one here. Honestly I like neither option
++    // that much, but doing so in this chokepoint is safer.
++    SBXCHECK_LT(i, slot_count());
+     slots_[i] = value;
+   }
+ 
